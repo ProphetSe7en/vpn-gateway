@@ -1,0 +1,22 @@
+#!/command/with-contenv bash
+# Cleanup nft limit rules when svc-traffic stops
+
+if [[ -f /etc/s6-overlay/scripts/bash-functions ]]; then
+    source /etc/s6-overlay/scripts/bash-functions
+else
+    log_inf() { echo "[INF] [svc-traffic] $*"; }
+fi
+
+NFT_TABLE="inet hotio"
+
+# Remove our rules by comment (safe — ignores if not found)
+for pair in "output:traffic-limit-up" "input:traffic-limit-down"; do
+    chain="${pair%%:*}"
+    comment="${pair##*:}"
+    handle=$(nft -a list chain $NFT_TABLE "$chain" 2>/dev/null | grep "comment \"${comment}\"" | grep -o 'handle [0-9]*' | awk '{print $2}')
+    if [[ -n "$handle" ]]; then
+        nft delete rule $NFT_TABLE "$chain" handle "$handle" 2>/dev/null || true
+    fi
+done
+
+log_inf "Bandwidth limit rules removed"

@@ -1,0 +1,459 @@
+#!/command/with-contenv bash
+# nft-apply — Apply nftables bandwidth limiting rules on VPN interface
+# Usage: nft-apply [command]
+#   (no args)   Apply DEFAULT rates from config (insert new rules)
+#   <N>         Apply SCHEDULE_N rates (replace existing rules — called by crond)
+#   schedule    Generate crontab from config (includes verify watchdog)
+#   verify      Check if our rules still exist, re-apply if missing (called by crond)
+#   reload      Re-read config, apply correct rates, regenerate crontab (called by config watcher)
+#   status      Show current limit rules and counters
+#   clear       Remove all limit rules (unlimited)
+
+# Guard against missing bash-functions
+if [[ -f /etc/s6-overlay/scripts/bash-functions ]]; then
+    source /etc/s6-overlay/scripts/bash-functions
+else
+    log_inf() { echo "[INF] [nft-apply] $*"; }
+    log_err() { echo "[ERR] [nft-apply] $*" >&2; }
+fi
+
+CONFIG="/config/traffic.conf"
+IFACE="${INTERFACE:-wg0}"
+NFT_TABLE="inet hotio"
+COMMENT_UP="traffic-limit-up"
+COMMENT_DOWN="traffic-limit-down"
+
+die() { log_err "$1"; exit 1; }
+
+# Check if a day-of-week matches a days spec (e.g., "mon-fri", "sat,sun", "mon,wed,fri")
+# $1 = day to check (lowercase 3-letter, e.g., "wed")
+# $2 = days spec from config
+day_matches() {
+    local check_day="$1"
+    local spec="$2"
+    local all_days="mon tue wed thu fri sat sun"
+
+    # Handle ranges like "mon-fri"
+    if [[ "$spec" == *"-"* ]]; then
+        local start="${spec%%-*}" end="${spec##*-}"
+        start=$(echo "$start" | tr '[:upper:]' '[:lower:]')
+        end=$(echo "$end" | tr '[:upper:]' '[:lower:]')
+        local in_range=false
+        # Double the list to handle wrap-around (e.g., "fri-mon")
+        for d in $all_days $all_days; do
+            [[ "$d" == "$start" ]] && in_range=true
+            if [[ "$in_range" == true ]] && [[ "$d" == "$check_day" ]]; then
+                return 0
+            fi
+            [[ "$d" == "$end" && "$in_range" == true ]] && return 1
+        done
+        return 1
+    fi
+
+    # Handle comma-separated like "mon,wed,fri"
+    local expanded
+    expanded=$(echo "$spec" | tr '[:upper:]' '[:lower:]' | tr ',' ' ')
+    for d in $expanded; do
+        [[ "$d" == "$check_day" ]] && return 0
+    done
+    return 1
+}
+
+load_config() {
+    [[ -f "$CONFIG" ]] || die "Config not found: $CONFIG"
+    if ! source "$CONFIG" 2>/dev/null; then
+        die "Failed to parse $CONFIG — check syntax"
+    fi
+    IFACE="${INTERFACE:-wg0}"
+}
+
+# Convert MB/s to kbytes/s (integer math, no decimals needed)
+mbytes_to_kbytes() {
+    echo $(( $1 * 1024 ))
+}
+
+# Calculate burst in kbytes: rate_kbytes * burst_ms / 1000
+# Minimum 64 kbytes (~45 full WireGuard MTU packets) to allow TCP window buildup.
+# Too small burst causes excessive drops → TCP can't ramp up → throughput well below rate.
+calc_burst() {
+    local rate_kbytes="$1"
+    local burst_ms="${BURST_MS:-500}"
+    local burst=$(( rate_kbytes * burst_ms / 1000 ))
+    [[ $burst -lt 64 ]] && burst=64
+    echo "$burst"
+}
+
+# Find the nft handle of hotio's wg0 accept rule in the output chain
+find_upload_anchor() {
+    nft -a list chain $NFT_TABLE output 2>/dev/null \
+        | grep "oifname \"${IFACE}\".*accept" \
+        | grep -v "limit rate" \
+        | tail -1 \
+        | grep -o 'handle [0-9]*' \
+        | awk '{print $2}'
+}
+
+# Find the nft handle of hotio's wg0 ct state accept rule in the input chain
+find_download_anchor() {
+    nft -a list chain $NFT_TABLE input 2>/dev/null \
+        | grep "iifname \"${IFACE}\".*ct state.*accept" \
+        | grep -v "limit rate" \
+        | tail -1 \
+        | grep -o 'handle [0-9]*' \
+        | awk '{print $2}'
+}
+
+# Find the handle of our existing limit rule (by comment)
+find_our_rule() {
+    local chain="$1"
+    local comment="$2"
+    nft -a list chain $NFT_TABLE "$chain" 2>/dev/null \
+        | grep "comment \"${comment}\"" \
+        | grep -o 'handle [0-9]*' \
+        | awk '{print $2}'
+}
+
+# Insert or replace a limit rule
+apply_limit() {
+    local chain="$1"
+    local ifmatch="$2"    # oifname or iifname
+    local comment="$3"
+    local rate_mbytes="$4"
+    local anchor="$5"
+
+    local rate_kbytes
+    rate_kbytes=$(mbytes_to_kbytes "$rate_mbytes")
+    local burst_kbytes
+    burst_kbytes=$(calc_burst "$rate_kbytes")
+
+    local existing
+    existing=$(find_our_rule "$chain" "$comment")
+
+    if [[ -n "$existing" ]]; then
+        # Replace existing rule atomically
+        if ! nft replace rule $NFT_TABLE "$chain" handle "$existing" \
+            ${ifmatch} "${IFACE}" limit rate over ${rate_kbytes} kbytes/second \
+            burst ${burst_kbytes} kbytes counter drop \
+            comment "${comment}" 2>&1; then
+            log_err "Failed to replace $comment rule (handle $existing)"
+            return 1
+        fi
+    else
+        # Insert new rule before the anchor
+        if [[ -z "$anchor" ]]; then
+            log_err "Cannot find anchor rule for $comment — hotio nft table not ready?"
+            return 1
+        fi
+        if ! nft insert rule $NFT_TABLE "$chain" position "$anchor" \
+            ${ifmatch} "${IFACE}" limit rate over ${rate_kbytes} kbytes/second \
+            burst ${burst_kbytes} kbytes counter drop \
+            comment "${comment}" 2>&1; then
+            log_err "Failed to insert $comment rule (anchor $anchor)"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# Remove a limit rule if it exists
+remove_limit() {
+    local chain="$1"
+    local comment="$2"
+    local handle
+    handle=$(find_our_rule "$chain" "$comment")
+    if [[ -n "$handle" ]]; then
+        nft delete rule $NFT_TABLE "$chain" handle "$handle" 2>/dev/null || true
+    fi
+}
+
+# Apply both upload and download rates
+apply_rates() {
+    local down="$1" up="$2" label="${3:-default}"
+    local failed=0
+
+    # Upload
+    if [[ "$up" -gt 0 ]] 2>/dev/null; then
+        local up_anchor
+        up_anchor=$(find_upload_anchor)
+        apply_limit "output" "oifname" "$COMMENT_UP" "$up" "$up_anchor" || failed=1
+    else
+        remove_limit "output" "$COMMENT_UP"
+    fi
+
+    # Download
+    if [[ "$down" -gt 0 ]] 2>/dev/null; then
+        local down_anchor
+        down_anchor=$(find_download_anchor)
+        apply_limit "input" "iifname" "$COMMENT_DOWN" "$down" "$down_anchor" || failed=1
+    else
+        remove_limit "input" "$COMMENT_DOWN"
+    fi
+
+    if [[ "${LOG_CHANGES:-true}" == "true" ]]; then
+        local down_eff up_eff
+        [[ "$down" -eq 0 ]] && down_eff="unlimited" || down_eff="${down} MB/s"
+        [[ "$up" -eq 0 ]] && up_eff="unlimited" || up_eff="${up} MB/s"
+        if [[ $failed -eq 1 ]]; then
+            log_err "[$label] Rates: ↓${down_eff} ↑${up_eff} — FAILED (check errors above)"
+        else
+            log_inf "[$label] Rates: ↓${down_eff} ↑${up_eff}"
+        fi
+    fi
+
+    return $failed
+}
+
+# Determine what rates should currently be active (default or active schedule)
+# Sets RESOLVED_DOWN and RESOLVED_UP as global variables
+#
+# Rules persist across midnight: if no schedule has triggered yet today,
+# we look back to yesterday (and the day before, up to 7 days) to find
+# the most recent rule that fired. This means a Friday 15:00 rule stays
+# active through Saturday 00:00 until the next rule explicitly changes it.
+resolve_current_rates() {
+    RESOLVED_DOWN="${DEFAULT_DOWN:-0}"
+    RESOLVED_UP="${DEFAULT_UP:-0}"
+
+    if [[ "${SCHEDULE_ENABLED:-false}" != "true" ]]; then
+        return 0
+    fi
+
+    local now_minutes=$(( $(date +%-H) * 60 + $(date +%-M) ))
+    local best_n=""
+
+    # First: check today's schedules that have already passed
+    local today_dow
+    today_dow=$(date +%a | tr '[:upper:]' '[:lower:]')
+    best_n=$(find_latest_schedule "$today_dow" "$now_minutes")
+
+    # If no schedule matched today, look back up to 7 days to find
+    # the most recent rule that fired (rules persist across midnight)
+    if [[ -z "$best_n" ]]; then
+        local days_back
+        for days_back in 1 2 3 4 5 6 7; do
+            local prev_dow
+            prev_dow=$(date -d "-${days_back} days" +%a | tr '[:upper:]' '[:lower:]')
+            [[ -z "$prev_dow" ]] && continue
+            # Check all schedules for that day (1440 = end of day)
+            best_n=$(find_latest_schedule "$prev_dow" 1440)
+            [[ -n "$best_n" ]] && break
+        done
+    fi
+
+    if [[ -n "$best_n" ]]; then
+        local down_var="SCHEDULE_${best_n}_DOWN"
+        local up_var="SCHEDULE_${best_n}_UP"
+        RESOLVED_DOWN="${!down_var:-0}"
+        RESOLVED_UP="${!up_var:-0}"
+    fi
+}
+
+# Find the latest schedule rule that matches a given day and has fired
+# before the given time (in minutes since midnight).
+# Returns the schedule number, or empty string if none matched.
+find_latest_schedule() {
+    local check_dow="$1"
+    local max_minutes="$2"
+    local best_n=""
+    local best_time=-1
+    local n=1
+    while [[ $n -le 50 ]]; do
+        local time_var="SCHEDULE_${n}_TIME"
+        local time_val="${!time_var}"
+        [[ -z "$time_val" ]] && break
+
+        local days_var="SCHEDULE_${n}_DAYS"
+        local days_val="${!days_var}"
+
+        # Check if the day matches
+        if [[ -n "$days_val" ]]; then
+            if ! day_matches "$check_dow" "$days_val"; then
+                n=$((n + 1))
+                continue
+            fi
+        fi
+
+        # Parse HH:MM to minutes since midnight
+        local hour="${time_val%%:*}"
+        local minute="${time_val##*:}"
+        local sched_minutes=$(( 10#$hour * 60 + 10#$minute ))
+
+        if [[ $sched_minutes -le $max_minutes ]] && [[ $sched_minutes -gt $best_time ]]; then
+            best_time=$sched_minutes
+            best_n=$n
+        fi
+        n=$((n + 1))
+    done
+    echo "$best_n"
+}
+
+# Verify our rules still exist — re-apply if hotio rebuilt its nft table (e.g., VPN reconnect)
+verify_rules() {
+    # Check if hotio's nft table exists at all
+    if ! nft list chain $NFT_TABLE output &>/dev/null; then
+        return 0  # Table gone — hotio hasn't rebuilt yet, nothing to do
+    fi
+
+    resolve_current_rates
+
+    # Check if our rules exist when they should
+    local up_exists down_exists
+    up_exists=$(find_our_rule "output" "$COMMENT_UP")
+    down_exists=$(find_our_rule "input" "$COMMENT_DOWN")
+
+    local need_reapply=false
+    if [[ "$RESOLVED_UP" -gt 0 ]] 2>/dev/null && [[ -z "$up_exists" ]]; then
+        need_reapply=true
+    fi
+    if [[ "$RESOLVED_DOWN" -gt 0 ]] 2>/dev/null && [[ -z "$down_exists" ]]; then
+        need_reapply=true
+    fi
+
+    if [[ "$need_reapply" == "true" ]]; then
+        log_inf "[verify] Rules missing — hotio may have rebuilt nft table. Re-applying rates."
+        apply_rates "$RESOLVED_DOWN" "$RESOLVED_UP" "verify"
+    fi
+}
+
+show_status() {
+    echo "=== Upload limit (output chain) ==="
+    local up_rule
+    up_rule=$(nft -a list chain $NFT_TABLE output 2>/dev/null | grep "$COMMENT_UP")
+    if [[ -n "$up_rule" ]]; then
+        echo "  $up_rule"
+    else
+        echo "  (none — unlimited)"
+    fi
+
+    echo ""
+    echo "=== Download limit (input chain) ==="
+    local down_rule
+    down_rule=$(nft -a list chain $NFT_TABLE input 2>/dev/null | grep "$COMMENT_DOWN")
+    if [[ -n "$down_rule" ]]; then
+        echo "  $down_rule"
+    else
+        echo "  (none — unlimited)"
+    fi
+}
+
+day_to_cron() {
+    local days="$1"
+    [[ -z "$days" ]] && echo "*" && return
+    echo "$days" | tr '[:upper:]' '[:lower:]'
+}
+
+generate_crontab() {
+    local crontab_dir="/tmp/traffic-crontab-dir"
+    mkdir -p "$crontab_dir"
+    chmod 700 "$crontab_dir"
+
+    local entries=""
+    local n=1
+    local max_rules=50
+    while [[ $n -le $max_rules ]]; do
+        local time_var="SCHEDULE_${n}_TIME"
+        local time_val="${!time_var}"
+        if [[ -z "$time_val" ]]; then
+            # Warn about gaps (e.g., SCHEDULE_1 + SCHEDULE_3 but no SCHEDULE_2)
+            local next_time_var="SCHEDULE_$(( n + 1 ))_TIME"
+            if [[ -n "${!next_time_var:-}" ]]; then
+                log_err "Schedule gap: SCHEDULE_${n}_TIME is missing but SCHEDULE_$(( n + 1 )) exists — rules after the gap are ignored"
+            fi
+            break
+        fi
+
+        local down_var="SCHEDULE_${n}_DOWN"
+        local up_var="SCHEDULE_${n}_UP"
+        local days_var="SCHEDULE_${n}_DAYS"
+
+        local down_val="${!down_var:-0}"
+        local up_val="${!up_var:-0}"
+        local days_val="${!days_var}"
+        local cron_days
+        cron_days=$(day_to_cron "$days_val")
+
+        # Parse HH:MM — strip leading zeros for cron
+        local hour="${time_val%%:*}"
+        local minute="${time_val##*:}"
+        hour=$((10#$hour))
+        minute=$((10#$minute))
+
+        entries+="${minute} ${hour} * * ${cron_days} /usr/local/bin/nft-apply ${n} 2>&1"$'\n'
+        log_inf "Schedule rule ${n}: ${time_val} ↓${down_val}/↑${up_val} MB/s${days_val:+ ($days_val)}"
+        n=$((n + 1))
+    done
+
+    # Always add verify watchdog — checks every minute if rules were wiped by hotio rebuild
+    entries+="* * * * * /usr/local/bin/nft-apply verify 2>&1"$'\n'
+    log_inf "Verify watchdog: checking rule presence every 60s"
+
+    if [[ -z "$entries" ]]; then
+        log_inf "No schedule rules found"
+        return 1
+    fi
+
+    echo -n "$entries" > "$crontab_dir/root"
+    chmod 600 "$crontab_dir/root"
+    log_inf "Generated $(( n - 1 )) schedule entries + verify watchdog"
+}
+
+# --- Main ---
+case "${1:-}" in
+    status)
+        load_config
+        show_status
+        ;;
+    clear)
+        load_config
+        remove_limit "output" "$COMMENT_UP"
+        remove_limit "input" "$COMMENT_DOWN"
+        log_inf "All bandwidth limit rules removed"
+        ;;
+    schedule)
+        load_config
+        generate_crontab
+        ;;
+    verify)
+        load_config
+        verify_rules
+        ;;
+    reload)
+        load_config
+        if [[ "${ENABLED:-true}" != "true" ]]; then
+            remove_limit "output" "$COMMENT_UP"
+            remove_limit "input" "$COMMENT_DOWN"
+            log_inf "[reload] Limiting disabled — rules removed"
+            exit 0
+        fi
+        # Determine correct rates (default or active schedule) and apply
+        resolve_current_rates
+        apply_rates "$RESOLVED_DOWN" "$RESOLVED_UP" "reload"
+        # Regenerate crontab in case schedule changed
+        generate_crontab
+        # Signal svc-traffic to restart crond so new crontab takes effect
+        CROND_PID_FILE="/tmp/traffic-crond.pid"
+        if [[ -f "$CROND_PID_FILE" ]]; then
+            old_pid=$(cat "$CROND_PID_FILE")
+            kill "$old_pid" 2>/dev/null || true
+        fi
+        ;;
+    "")
+        load_config
+        apply_rates "${DEFAULT_DOWN:-0}" "${DEFAULT_UP:-0}" "default"
+        ;;
+    *)
+        # Numeric argument = apply schedule N
+        load_config
+        n="$1"
+        local_time_var="SCHEDULE_${n}_TIME"
+        local_down_var="SCHEDULE_${n}_DOWN"
+        local_up_var="SCHEDULE_${n}_UP"
+        local_down_val="${!local_down_var:-0}"
+        local_up_val="${!local_up_var:-0}"
+        if [[ -z "${!local_time_var:-}" ]]; then
+            log_err "Schedule rule $n not found in config"
+            exit 1
+        fi
+        apply_rates "$local_down_val" "$local_up_val" "schedule-${n}"
+        ;;
+esac

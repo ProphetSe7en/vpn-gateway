@@ -1,0 +1,131 @@
+# ============================================================================
+# traffic.conf — VPN Gateway Bandwidth Manager (nftables)
+# ============================================================================
+# Place in /config/traffic.conf (Docker volume mount)
+# Changes are detected automatically within 10 seconds — no restart needed.
+#
+# Useful commands:
+#   docker exec vpn-gateway nft-apply status   — show active rules + packet counters
+#   docker exec vpn-gateway nft-apply clear    — remove all limits (unlimited)
+#   docker exec vpn-gateway nft-apply reload   — force re-read config now
+#   docker logs vpn-gateway                    — see rate changes, schedule triggers, errors
+# ============================================================================
+
+# --- Config Version (do not edit) -------------------------------------------
+# Used to detect when new options are available after an image update.
+# The service will automatically add missing options from the new version
+# while preserving all your existing settings.
+CONFIG_VERSION=1
+
+# --- General ----------------------------------------------------------------
+# Set to false to disable bandwidth limiting entirely
+ENABLED=true
+
+# VPN interface — auto-detected from WireGuard, override only if needed
+# INTERFACE=wg0
+
+# --- Default Bandwidth ------------------------------------------------------
+# Applied at startup when no schedule rule has triggered yet.
+# Values in MB/s (megabytes per second). Set to 0 for unlimited.
+#
+# NOTE: nftables uses packet dropping (policing), not queueing (shaping).
+# TCP congestion control adapts to the limit. In testing, effective throughput
+# was consistently ~97% of the configured rate (e.g., 75 MB/s config → ~72.9 MB/s
+# actual). If you experience lower speeds than expected, increase the value by
+# a few percent to compensate.
+DEFAULT_DOWN=0
+DEFAULT_UP=0
+
+# --- Schedule ----------------------------------------------------------------
+# Time-based bandwidth profiles. Rates change live — no container restart.
+#
+# How it works:
+#   Each rule says "from this time, use this rate". A rule stays active until
+#   the next rule takes over — even across midnight. For example, a Friday
+#   15:00 rule at 75 MB/s stays active through Saturday 00:00 until another
+#   rule explicitly changes it.
+#
+#   DEFAULT is only used as a fallback if no schedule rule has ever triggered
+#   (e.g., first startup). Once a schedule rule fires, it stays active until
+#   the next one.
+#
+# Fields:
+#   SCHEDULE_<N>_TIME   = HH:MM (24-hour, required)
+#   SCHEDULE_<N>_DOWN   = MB/s (required, 0 = unlimited)
+#   SCHEDULE_<N>_UP     = MB/s (required, 0 = unlimited)
+#   SCHEDULE_<N>_DAYS   = day filter (optional, default: every day)
+#                         Examples: "mon-fri", "sat,sun", "mon,wed,fri", "tue"
+#
+# You can have up to 50 rules. They are numbered sequentially (no gaps).
+
+SCHEDULE_ENABLED=false
+
+# --- Example: Home use schedule ---
+#
+# Goal: limit VPN during hours when family is using the internet for
+# gaming, streaming, etc. Full speed when nobody notices.
+#
+# Weekdays (mon-fri):
+#   06:00 - 07:30  Limited (morning routine)
+#   07:30 - 15:00  Full speed (everyone at work/school)
+#   15:00 onwards  Limited (afternoon/evening)
+#
+# Weekday nights (mon-thu):
+#   23:00 onwards  Full speed (overnight downloads)
+#
+# Friday night → Saturday:
+#   15:00 Friday → 01:00 Saturday  Limited (carries over midnight automatically)
+#   01:00 Saturday  Full speed
+#
+# Weekends (sat-sun):
+#   11:00 - 01:00 next day  Limited (daytime/evening)
+#   01:00 - 11:00           Full speed (overnight/morning)
+#
+# SCHEDULE_1_TIME="23:00"
+# SCHEDULE_1_DOWN=0
+# SCHEDULE_1_UP=0
+# SCHEDULE_1_DAYS="mon-thu"
+#
+# SCHEDULE_2_TIME="06:00"
+# SCHEDULE_2_DOWN=75
+# SCHEDULE_2_UP=75
+# SCHEDULE_2_DAYS="mon-fri"
+#
+# SCHEDULE_3_TIME="07:30"
+# SCHEDULE_3_DOWN=0
+# SCHEDULE_3_UP=0
+# SCHEDULE_3_DAYS="mon-fri"
+#
+# SCHEDULE_4_TIME="15:00"
+# SCHEDULE_4_DOWN=75
+# SCHEDULE_4_UP=75
+# SCHEDULE_4_DAYS="mon-fri"
+#
+# SCHEDULE_5_TIME="01:00"
+# SCHEDULE_5_DOWN=0
+# SCHEDULE_5_UP=0
+# SCHEDULE_5_DAYS="sat,sun"
+#
+# SCHEDULE_6_TIME="11:00"
+# SCHEDULE_6_DOWN=75
+# SCHEDULE_6_UP=75
+# SCHEDULE_6_DAYS="sat,sun"
+
+# --- Advanced ----------------------------------------------------------------
+# Burst buffer in milliseconds of traffic at the configured rate.
+# This controls how much data can pass before rate limiting kicks in.
+#
+# Higher = smoother TCP, better throughput, but allows brief speed spikes.
+# Lower = stricter enforcement, but TCP can't build windows → poor throughput.
+#
+# Guidelines:
+#   500ms (default) — good balance for torrent traffic
+#   1000ms          — smoother for high-rate limits (100+ MB/s)
+#   250ms           — stricter, only if you need tight enforcement
+#
+# Minimum enforced: 64 kbytes (~45 full WireGuard MTU packets) regardless
+# of this setting, to ensure TCP can function at any rate.
+# BURST_MS=500
+
+# Log rate changes to container log
+# LOG_CHANGES=true
