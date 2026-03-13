@@ -1,0 +1,168 @@
+#!/command/with-contenv bash
+# svc-traffic — Apply nftables bandwidth limiting on VPN interface
+# Crash-safe: all error paths fall through to sleep infinity instead of exiting.
+
+# Guard against missing bash-functions (hotio base image dependency)
+if [[ -f /etc/s6-overlay/scripts/bash-functions ]]; then
+    source /etc/s6-overlay/scripts/bash-functions
+else
+    log_inf() { echo "[INF] [svc-traffic] $*"; }
+    log_err() { echo "[ERR] [svc-traffic] $*" >&2; }
+fi
+
+# Safety net: clean up crond + sleep forever on unexpected exit.
+# Prevents s6 from restarting us in a tight loop.
+CROND_PID_FILE="/tmp/traffic-crond.pid"
+cleanup_and_sleep() {
+    if [[ -f "$CROND_PID_FILE" ]]; then
+        kill "$(cat "$CROND_PID_FILE")" 2>/dev/null || true
+        rm -f "$CROND_PID_FILE"
+    fi
+    log_err "Unexpected exit -- sleeping to prevent restart loop"
+    exec sleep infinity
+}
+trap cleanup_and_sleep EXIT
+
+umask "${UMASK}"
+
+CONFIG="/config/traffic.conf"
+SAMPLE="/traffic.conf.sample"
+
+# Copy sample config on first run
+if [[ ! -f "$CONFIG" ]]; then
+    cp "$SAMPLE" "$CONFIG" 2>/dev/null || true
+    chown hotio:users "$CONFIG" 2>/dev/null || true
+    chmod 664 "$CONFIG" 2>/dev/null || true
+    log_inf "Created default traffic.conf — edit and restart to configure"
+fi
+
+# Upgrade config: add missing keys from sample while preserving user values
+upgrade_config() {
+    local sample_ver user_ver
+    sample_ver=$(grep -m1 '^CONFIG_VERSION=' "$SAMPLE" 2>/dev/null | cut -d= -f2)
+    user_ver=$(grep -m1 '^CONFIG_VERSION=' "$CONFIG" 2>/dev/null | cut -d= -f2)
+    sample_ver="${sample_ver:-0}"
+    user_ver="${user_ver:-0}"
+
+    if [[ "$user_ver" -ge "$sample_ver" ]] 2>/dev/null; then
+        return 0
+    fi
+
+    log_inf "Config upgrade: v${user_ver} → v${sample_ver} — adding new options"
+
+    # Extract uncommented KEY=value lines from sample (the defaults)
+    local key added=0
+    while IFS='=' read -r key _; do
+        [[ -z "$key" || "$key" == \#* ]] && continue
+        # If key doesn't exist (uncommented) in user config, append it with its sample comment block
+        if ! grep -q "^${key}=" "$CONFIG" 2>/dev/null; then
+            # Get the comment lines immediately above this key in the sample, plus the key line
+            local block
+            block=$(awk -v k="^${key}=" '
+                /^#/ { buf = buf $0 "\n"; next }
+                $0 ~ k { printf "%s%s\n", buf, $0; buf=""; next }
+                { buf="" }
+            ' "$SAMPLE")
+            echo "" >> "$CONFIG"
+            echo "$block" >> "$CONFIG"
+            ((added++))
+            log_inf "  Added new option: ${key}"
+        fi
+    done < "$SAMPLE"
+
+    # Update version in user config
+    if grep -q '^CONFIG_VERSION=' "$CONFIG" 2>/dev/null; then
+        sed -i "s/^CONFIG_VERSION=.*/CONFIG_VERSION=${sample_ver}/" "$CONFIG"
+    else
+        echo "CONFIG_VERSION=${sample_ver}" >> "$CONFIG"
+    fi
+
+    chown hotio:users "$CONFIG" 2>/dev/null || true
+    [[ $added -gt 0 ]] && log_inf "Config upgrade complete — ${added} new option(s) added"
+    [[ $added -eq 0 ]] && log_inf "Config upgrade complete — version updated, no new options"
+}
+upgrade_config
+
+# Source config with error handling — syntax errors must not crash the service
+if ! source "$CONFIG" 2>/dev/null; then
+    log_err "Failed to parse traffic.conf — check syntax. Sleeping."
+    exec sleep infinity
+fi
+
+if [[ "${ENABLED:-true}" != "true" ]]; then
+    log_inf "Bandwidth limiting disabled (ENABLED=false)"
+    exec sleep infinity
+fi
+
+IFACE="${INTERFACE:-wg0}"
+
+# Wait for VPN interface before applying rules
+retries=30
+for ((i=1; i<=retries; i++)); do
+    if ip link show "$IFACE" &>/dev/null; then
+        break
+    fi
+    if [[ $i -eq $retries ]]; then
+        log_err "Interface $IFACE not found after ${retries}s — sleeping without limiting"
+        exec sleep infinity
+    fi
+    log_inf "Waiting for $IFACE interface... ($i/$retries)"
+    sleep 1
+done
+
+# Wait for hotio's nft table AND the specific anchor rules we need to insert before.
+# Just checking the chain exists isn't enough — hotio builds rules incrementally.
+# We need the wg0 accept rules to be present before we can insert our limits.
+nft_retries=30
+for ((i=1; i<=nft_retries; i++)); do
+    if nft -a list chain inet hotio output 2>/dev/null | grep -q "oifname \"${IFACE}\".*accept" && \
+       nft -a list chain inet hotio input 2>/dev/null | grep -q "iifname \"${IFACE}\".*ct state.*accept"; then
+        break
+    fi
+    if [[ $i -eq $nft_retries ]]; then
+        log_err "Hotio nft anchor rules for $IFACE not found after ${nft_retries}s — sleeping without limiting"
+        exec sleep infinity
+    fi
+    if [[ $((i % 5)) -eq 0 ]]; then
+        log_inf "Waiting for hotio nft rules for $IFACE... ($i/$nft_retries)"
+    fi
+    sleep 1
+done
+
+log_inf "Hotio nft table ready — applying bandwidth limits"
+
+# Apply default rates
+nft-apply || log_err "Failed to apply default rates — continuing anyway"
+
+# Always generate crontab and start crond — even without schedule rules,
+# the verify watchdog needs to run every minute to detect hotio nft rebuilds
+# (e.g., VPN reconnect) and re-apply our limit rules.
+nft-apply schedule
+log_inf "Starting crond for scheduled rate changes + verify watchdog"
+
+start_crond() {
+    crond -l 6 -c /tmp/traffic-crontab-dir &
+    echo $! > "$CROND_PID_FILE"
+}
+
+start_crond
+
+# Config hot-reload: monitor traffic.conf for changes every 10 seconds.
+# When the file changes, re-read config and apply new rates without restart.
+log_inf "Config watcher active — changes to traffic.conf apply within 10s"
+CONFIG_HASH=$(md5sum "$CONFIG" 2>/dev/null | awk '{print $1}')
+while true; do
+    sleep 10
+    NEW_HASH=$(md5sum "$CONFIG" 2>/dev/null | awk '{print $1}')
+    if [[ "$NEW_HASH" != "$CONFIG_HASH" ]]; then
+        log_inf "Config change detected — reloading"
+        if nft-apply reload 2>&1; then
+            CONFIG_HASH="$NEW_HASH"
+            # nft-apply reload kills old crond — restart it with new crontab
+            start_crond
+            log_inf "Crond restarted with updated schedule"
+        else
+            log_err "Reload failed — keeping previous config. Check syntax."
+        fi
+    fi
+done
