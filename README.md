@@ -1,6 +1,6 @@
-# nft-shaper
+# vpn-gateway
 
-nftables bandwidth manager with scheduling, hot-reload, and per-interface rate limiting.
+VPN gateway with nftables bandwidth management, scheduling, hot-reload, and per-interface rate limiting.
 
 Built as a layer on top of [hotio/base:alpinevpn](https://hotio.dev/containers/base/) — adds bandwidth limiting via nftables `limit rate` rules, with time-based scheduling and automatic config hot-reload.
 
@@ -16,7 +16,7 @@ Built as a layer on top of [hotio/base:alpinevpn](https://hotio.dev/containers/b
 
 ## How it works
 
-nft-shaper inserts nftables rate-limit rules into hotio's existing firewall chains. Traffic exceeding the configured rate is dropped (policing). TCP congestion control adapts to the limit — in testing, effective throughput was consistently ~97% of the configured rate.
+nftables rate-limit rules are inserted into hotio's existing firewall chains. Traffic exceeding the configured rate is dropped (policing). TCP congestion control adapts to the limit — in testing, effective throughput was consistently ~97% of the configured rate.
 
 All containers sharing the VPN gateway's network namespace (e.g., qBittorrent instances using `--net=container:vpn-gateway`) are affected by the same limits. The rate is aggregate, not per-container.
 
@@ -25,15 +25,15 @@ All containers sharing the VPN gateway's network namespace (e.g., qBittorrent in
 ### Build locally
 
 ```bash
-git clone https://github.com/ProphetSe7en/nft-shaper.git
-cd nft-shaper
-docker build -t nft-shaper:latest .
+git clone https://github.com/ProphetSe7en/vpn-gateway.git
+cd vpn-gateway
+docker build -t vpn-gateway:latest .
 ```
 
 ### Pull from GHCR
 
 ```bash
-docker pull ghcr.io/prophetse7en/nft-shaper:latest
+docker pull ghcr.io/prophetse7en/vpn-gateway:latest
 ```
 
 ### Run
@@ -50,7 +50,7 @@ docker run -d \
   -e VPN_ENABLED=true \
   -e VPN_CONF=wg0 \
   -e PRIVNET=192.168.86.0/24 \
-  ghcr.io/prophetse7en/nft-shaper:latest
+  ghcr.io/prophetse7en/vpn-gateway:latest
 ```
 
 On first start, a default `traffic.conf` is created in `/config/` with all options documented.
