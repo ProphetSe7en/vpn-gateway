@@ -77,7 +77,10 @@ upgrade_config() {
         echo "CONFIG_VERSION=${sample_ver}" >> "$CONFIG"
     fi
 
+    # Restore ownership after upgrade (sed/echo run as root)
     chown hotio:users "$CONFIG" 2>/dev/null || true
+    chmod 664 "$CONFIG" 2>/dev/null || true
+
     [[ $added -gt 0 ]] && log_inf "Config upgrade complete — ${added} new option(s) added"
     [[ $added -eq 0 ]] && log_inf "Config upgrade complete — version updated, no new options"
 }
