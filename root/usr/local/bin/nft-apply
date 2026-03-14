@@ -45,7 +45,7 @@ day_matches() {
             if [[ "$in_range" == true ]] && [[ "$d" == "$check_day" ]]; then
                 return 0
             fi
-            [[ "$d" == "$end" && "$in_range" == true ]] && return 1
+            [[ "$d" == "$end" && "$in_range" == true ]] && break
         done
         return 1
     fi
