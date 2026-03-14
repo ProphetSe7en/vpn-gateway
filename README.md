@@ -159,7 +159,7 @@ nft rules are inserted into hotio's existing inet hotio table:
 
 ## Credits
 
-Built on [hotio/base:alpinevpn](https://hotio.dev/containers/base/) by [hotio](https://hotio.dev). All VPN functionality (WireGuard, firewall, DNS leak protection) is provided by the hotio base image. nft-shaper only adds the bandwidth management layer.
+Built on [hotio/base:alpinevpn](https://hotio.dev/containers/base/) by [hotio](https://hotio.dev). All VPN functionality (WireGuard, firewall, DNS leak protection) is provided by the hotio base image. vpn-gateway only adds the bandwidth management layer.
 
 ## License
 
