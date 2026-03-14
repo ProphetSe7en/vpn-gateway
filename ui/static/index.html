@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vpn-gateway</title>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+<style>
+  [x-cloak] { display: none !important; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: #0f1117;
+    color: #e1e4e8;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  .container { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #30363d;
+  }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .header .status-badge {
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .badge-active { background: #1a3a2a; color: #3fb950; }
+  .badge-limited { background: #3a2a1a; color: #d29922; }
+  .badge-disabled { background: #3a1a1a; color: #f85149; }
+
+  /* Cards */
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+  }
+
+  /* Current status */
+  .status-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .stat-box {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 12px 16px;
+  }
+  .stat-label { font-size: 12px; color: #8b949e; margin-bottom: 4px; }
+  .stat-value { font-size: 24px; font-weight: 600; }
+  .stat-unit { font-size: 14px; color: #8b949e; font-weight: 400; }
+
+  /* Forms */
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group label {
+    font-size: 12px;
+    color: #8b949e;
+    font-weight: 500;
+  }
+  .form-group input, .form-group select {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e1e4e8;
+    padding: 8px 12px;
+    font-size: 14px;
+    outline: none;
+  }
+  .form-group input:focus, .form-group select:focus {
+    border-color: #58a6ff;
+  }
+  .form-group select option { background: #0d1117; }
+
+  /* Toggle */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .toggle {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    cursor: pointer;
+  }
+  .toggle input { display: none; }
+  .toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: #30363d;
+    border-radius: 11px;
+    transition: background 0.2s;
+  }
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    left: 3px;
+    top: 3px;
+    background: #e1e4e8;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .toggle input:checked + .toggle-slider { background: #58a6ff; }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
+  .toggle-label { font-size: 14px; }
+
+  /* Schedule rules */
+  .rule-list { display: flex; flex-direction: column; gap: 8px; }
+  .rule-item {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 12px 16px;
+    display: grid;
+    grid-template-columns: 55px 100px 80px 80px 1fr 32px;
+    gap: 10px;
+    align-items: center;
+  }
+  .rule-item input, .rule-item select {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    color: #e1e4e8;
+    padding: 6px 8px;
+    font-size: 13px;
+    outline: none;
+    width: 100%;
+  }
+  .rule-item input:focus, .rule-item select:focus { border-color: #58a6ff; }
+  .rule-label { font-size: 12px; color: #58a6ff; font-weight: 500; }
+  .rule-header {
+    display: grid;
+    grid-template-columns: 55px 100px 80px 80px 1fr 32px;
+    gap: 10px;
+    padding: 0 16px 6px;
+    font-size: 11px;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .time-input {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .time-input input {
+    width: 36px;
+    text-align: center;
+    padding: 6px 4px;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .time-input .sep {
+    color: #8b949e;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  /* Info notes */
+  .info-note {
+    font-size: 12px;
+    color: #8b949e;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+  }
+  .field-hint {
+    font-size: 12px;
+    color: #6e7681;
+    line-height: 1.4;
+    margin-top: 4px;
+  }
+
+  /* Schedule summary */
+  .schedule-summary {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 16px;
+    margin-top: 16px;
+  }
+  .summary-title {
+    font-size: 12px;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+  .day-group { margin-bottom: 12px; }
+  .day-group:last-child { margin-bottom: 0; }
+  .day-group-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #c9d1d9;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #21262d;
+  }
+  .summary-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 13px;
+  }
+  .summary-time {
+    font-variant-numeric: tabular-nums;
+    min-width: 120px;
+  }
+  .summary-rate { font-weight: 500; }
+  .summary-note { color: #484f58; font-size: 12px; }
+  .arrow { color: #484f58; margin: 0 2px; }
+  .clr-limited { color: #d29922; }
+  .clr-unlimited { color: #3fb950; }
+
+  /* Buttons */
+  .btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid #30363d;
+    background: #21262d;
+    color: #e1e4e8;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn:hover { background: #30363d; }
+  .btn-primary {
+    background: #238636;
+    border-color: #2ea043;
+    color: #fff;
+  }
+  .btn-primary:hover { background: #2ea043; }
+  .btn-danger {
+    background: transparent;
+    border: none;
+    color: #f85149;
+    cursor: pointer;
+    font-size: 18px;
+    padding: 0;
+    line-height: 1;
+  }
+  .btn-danger:hover { color: #ff7b72; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  /* Feedback */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 100;
+    transition: opacity 0.3s;
+  }
+  .toast-success { background: #1a3a2a; color: #3fb950; border: 1px solid #2ea043; }
+  .toast-error { background: #3a1a1a; color: #f85149; border: 1px solid #f85149; }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 24px 0 8px;
+    font-size: 12px;
+    color: #484f58;
+  }
+</style>
+</head>
+<body>
+<div class="container" x-data="app()" x-init="init()" x-cloak>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>vpn-gateway</h1>
+  </div>
+
+  <!-- Current Status -->
+  <div class="card">
+    <div class="card-title" style="display:flex;align-items:center;gap:8px">
+      Current Status
+      <span class="status-badge" :class="statusBadgeClass" x-text="statusBadgeText"></span>
+    </div>
+    <div class="status-grid">
+      <div class="stat-box">
+        <div class="stat-label">Download</div>
+        <div class="stat-value">
+          <span x-text="activeDown.active ? activeDown.rateMB : config.defaultDown || 0"></span>
+          <span class="stat-unit" x-text="isUnlimited('down') ? '(unlimited)' : 'MB/s'"></span>
+        </div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Upload</div>
+        <div class="stat-value">
+          <span x-text="activeUp.active ? activeUp.rateMB : config.defaultUp || 0"></span>
+          <span class="stat-unit" x-text="isUnlimited('up') ? '(unlimited)' : 'MB/s'"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="card">
+    <div class="card-title">Settings</div>
+    <div class="toggle-row">
+      <label class="toggle">
+        <input type="checkbox" x-model="config.enabled">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="toggle-label">Bandwidth limiting enabled</span>
+    </div>
+    <template x-if="!config.enabled">
+      <div>
+        <div class="info-note">All traffic is unlimited. Schedule rules are ignored while disabled.</div>
+        <div class="btn-row" style="justify-content:flex-end;margin-top:8px">
+          <button class="btn btn-primary btn-sm" @click="save" :disabled="saving">
+            <span x-text="saving ? 'Saving...' : 'Save'"></span>
+          </button>
+        </div>
+      </div>
+    </template>
+    <template x-if="config.enabled">
+      <div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Default download (MB/s, 0 = unlimited)</label>
+            <input type="number" min="0" x-model.number="config.defaultDown">
+          </div>
+          <div class="form-group">
+            <label>Default upload (MB/s, 0 = unlimited)</label>
+            <input type="number" min="0" x-model.number="config.defaultUp">
+          </div>
+        </div>
+        <div class="info-note" x-show="config.scheduleEnabled" style="margin-bottom:12px">
+          Default rates apply when no schedule rule is active.
+          Schedule rules override these values when they trigger.
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Burst buffer (ms)</label>
+            <input type="number" min="100" max="5000" step="50" x-model.number="config.burstMs">
+            <span class="field-hint">Controls how much data can pass before rate limiting kicks in. Higher = smoother throughput but allows brief speed spikes. Default: 500ms.</span>
+          </div>
+          <div class="form-group"></div>
+        </div>
+        <div class="btn-row" style="justify-content:flex-end;margin-top:8px">
+          <button class="btn btn-primary btn-sm" @click="save" :disabled="saving">
+            <span x-text="saving ? 'Saving...' : 'Save'"></span>
+          </button>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- Schedule -->
+  <div class="card" x-show="config.enabled">
+    <div class="card-title">Schedule</div>
+    <div class="toggle-row">
+      <label class="toggle">
+        <input type="checkbox" x-model="config.scheduleEnabled">
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="toggle-label">Schedule enabled</span>
+    </div>
+
+    <template x-if="config.scheduleEnabled">
+      <div>
+        <div style="font-size:12px;color:#8b949e;margin-bottom:12px">Each rule applies from its start time until the next rule takes over.</div>
+        <div class="rule-header">
+          <span></span>
+          <span>Time</span>
+          <span>Down MB/s</span>
+          <span>Up MB/s</span>
+          <span>Days</span>
+          <span></span>
+        </div>
+        <div class="rule-list">
+          <template x-for="(rule, idx) in config.rules" :key="idx">
+            <div class="rule-item">
+              <span class="rule-label" x-text="'R' + (idx+1)"></span>
+              <div class="time-input">
+                <input type="text" maxlength="2" placeholder="00"
+                  :value="rule.time.split(':')[0]||'00'"
+                  @blur="timeBlur($event, rule, 'h', 'from')"
+                  @focus="$event.target.select()">
+                <span class="sep">:</span>
+                <input type="text" maxlength="2" placeholder="00"
+                  :value="rule.time.split(':')[1]||'00'"
+                  @blur="timeBlur($event, rule, 'm', 'from')"
+                  @focus="$event.target.select()">
+              </div>
+              <input type="number" min="0" x-model.number="rule.down" placeholder="0">
+              <input type="number" min="0" x-model.number="rule.up" placeholder="0">
+              <div>
+                <select x-show="!rule._custom && isKnownDays(rule.days)"
+                  :value="isKnownDays(rule.days)?rule.days:''"
+                  @change="if($event.target.value==='_custom'){rule._custom=true}else{rule.days=$event.target.value}">
+                  <option value="">Every day</option>
+                  <option value="mon-fri">Weekdays (mon-fri)</option>
+                  <option value="sat,sun">Weekends (sat,sun)</option>
+                  <option value="mon-thu">Mon-Thu</option>
+                  <option value="sun-thu">Sun-Thu</option>
+                  <option value="mon">Monday</option>
+                  <option value="tue">Tuesday</option>
+                  <option value="wed">Wednesday</option>
+                  <option value="thu">Thursday</option>
+                  <option value="fri">Friday</option>
+                  <option value="sat">Saturday</option>
+                  <option value="sun">Sunday</option>
+                  <option value="_custom">Custom...</option>
+                </select>
+                <div x-show="rule._custom || !isKnownDays(rule.days)" style="display:flex;gap:4px;align-items:center">
+                  <input type="text" x-model="rule.days" placeholder="e.g. mon,wed,fri" style="flex:1">
+                  <button class="btn btn-sm" @click="rule._custom=false;if(!rule.days)rule.days=''" style="padding:4px 6px;font-size:11px" title="Back to dropdown">&#x2190;</button>
+                </div>
+              </div>
+              <button class="btn-danger" @click="removeRule(idx)" title="Remove">&times;</button>
+            </div>
+          </template>
+        </div>
+        <div class="btn-row" style="justify-content:space-between">
+          <button class="btn btn-sm" @click="addRule">+ Add rule</button>
+          <button class="btn btn-primary btn-sm" @click="save" :disabled="saving">
+            <span x-text="saving ? 'Saving...' : 'Save'"></span>
+          </button>
+        </div>
+
+        <!-- Effective schedule summary -->
+        <template x-if="config.rules.length > 0">
+          <div class="schedule-summary">
+            <div class="summary-title" @click="showSummary=!showSummary" style="cursor:pointer;user-select:none">
+              <span x-text="showSummary ? '&#9660;' : '&#9654;'" style="font-size:10px;margin-right:4px"></span>
+              Effective schedule
+            </div>
+            <template x-if="showSummary">
+              <div>
+                <template x-for="group in effectiveSchedule" :key="group.label">
+                  <div class="day-group">
+                    <div class="day-group-label" x-text="group.label"></div>
+                    <template x-for="(slot, i) in group.slots" :key="i">
+                      <div class="summary-row">
+                        <span class="summary-time" :class="slot.limited ? 'clr-limited' : 'clr-unlimited'">
+                          <span x-text="slot.from"></span>
+                          <span class="arrow">&rarr;</span>
+                          <span x-text="slot.to"></span>
+                        </span>
+                        <span class="summary-rate" :class="slot.limited ? 'clr-limited' : 'clr-unlimited'"
+                          x-text="slot.limited ? slot.down + '/' + slot.up + ' MB/s' : 'Unlimited'"></span>
+                        <span class="summary-note" x-text="slot.note||''"></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </template>
+  </div>
+
+
+  <!-- Toast -->
+  <div class="toast" :class="toast.type" x-show="toast.show" x-transition x-text="toast.msg"></div>
+
+  <!-- Footer -->
+  <div class="footer">vpn-gateway</div>
+</div>
+
+<script>
+function app() {
+  return {
+    config: {
+      enabled: true,
+      scheduleEnabled: false,
+      defaultDown: 0,
+      defaultUp: 0,
+      burstMs: 500,
+      logChanges: true,
+      configVersion: 1,
+      rules: []
+    },
+    activeUp: { active: false, rateMB: 0 },
+    activeDown: { active: false, rateMB: 0 },
+    saving: false,
+    showSummary: true,
+    toast: { show: false, msg: '', type: '' },
+    pollTimer: null,
+
+    async init() {
+      await this.reload();
+      // Poll status every 5s
+      this.pollTimer = setInterval(() => this.fetchStatus(), 5000);
+    },
+
+    async reload() {
+      try {
+        const [cfgRes, statusRes] = await Promise.all([
+          fetch('/api/config'), fetch('/api/status')
+        ]);
+        const cfg = await cfgRes.json();
+        const status = await statusRes.json();
+        if (cfg.error) throw new Error(cfg.error);
+
+        this.config.enabled = cfg.enabled;
+        this.config.scheduleEnabled = cfg.scheduleEnabled;
+        this.config.defaultDown = cfg.defaultDown;
+        this.config.defaultUp = cfg.defaultUp;
+        this.config.burstMs = cfg.burstMs;
+        this.config.logChanges = cfg.logChanges !== false;
+        this.config.configVersion = cfg.configVersion || 1;
+        this.config.rules = (cfg.rules || []).map(r => ({...r}));
+        this.activeUp = status.activeUp || { active: false, rateMB: 0 };
+        this.activeDown = status.activeDown || { active: false, rateMB: 0 };
+      } catch (e) {
+        this.showToast('Failed to load config: ' + e.message, 'toast-error');
+      }
+    },
+
+    async fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        if (!data.error) {
+          this.activeUp = data.activeUp || { active: false, rateMB: 0 };
+          this.activeDown = data.activeDown || { active: false, rateMB: 0 };
+        }
+      } catch {}
+    },
+
+    async save() {
+      this.saving = true;
+      try {
+        const res = await fetch('/api/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...this.config,
+            rules: this.config.rules.map(({_custom, ...r}) => r)
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        this.showToast('Config saved — changes apply within 10 seconds', 'toast-success');
+      } catch (e) {
+        this.showToast('Save failed: ' + e.message, 'toast-error');
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    addRule() {
+      this.config.rules.push({
+        time: '00:00',
+        down: 0,
+        up: 0,
+        days: ''
+      });
+    },
+
+    removeRule(idx) {
+      this.config.rules.splice(idx, 1);
+    },
+
+    timeBlur(e, rule, part, which) {
+      const max = part === 'h' ? 23 : 59;
+      let raw = e.target.value.replace(/[^0-9]/g, '');
+      let num = parseInt(raw, 10);
+      if (isNaN(num)) num = 0;
+      if (num > max) num = max;
+      const padded = String(num).padStart(2, '0');
+      e.target.value = padded;
+      const field = which === 'to' ? 'timeTo' : 'time';
+      const cur = (rule[field] || '00:00').split(':');
+      if (part === 'h') cur[0] = padded;
+      else cur[1] = padded;
+      rule[field] = cur[0] + ':' + cur[1];
+    },
+
+    get effectiveSchedule() {
+      const allDays = ['mon','tue','wed','thu','fri','sat','sun'];
+      const dayNames = {mon:'Monday',tue:'Tuesday',wed:'Wednesday',thu:'Thursday',fri:'Friday',sat:'Saturday',sun:'Sunday'};
+      const rules = this.config.rules;
+      if (!rules.length) return [];
+
+      // Expand day specs into sets of days
+      function expandDays(spec) {
+        if (!spec) return new Set(allDays);
+        const parts = spec.toLowerCase().split(',');
+        const result = new Set();
+        for (const p of parts) {
+          if (p.includes('-')) {
+            const [start, end] = p.split('-');
+            let adding = false;
+            for (let i = 0; i < 14; i++) {
+              const d = allDays[i % 7];
+              if (d === start) adding = true;
+              if (adding) result.add(d);
+              if (d === end && adding) break;
+            }
+          } else {
+            result.add(p.trim());
+          }
+        }
+        return result;
+      }
+
+      // For each day, collect rules that apply, sorted by time
+      function rulesForDay(day) {
+        const dayRules = [];
+        for (let i = 0; i < rules.length; i++) {
+          const r = rules[i];
+          if (expandDays(r.days).has(day)) {
+            const mins = parseInt(r.time.split(':')[0])*60 + parseInt(r.time.split(':')[1]);
+            dayRules.push({ time: r.time, mins, down: r.down, up: r.up, label: 'R' + (i+1) });
+          }
+        }
+        dayRules.sort((a, b) => a.mins - b.mins);
+        return dayRules;
+      }
+
+      // Find what rate carries over from the previous day.
+      // Matches nft-apply behavior: looks back up to 7 days to find
+      // the most recent rule that fired. Returns {down, up, ruleIdx}.
+      function lastRateOfPrevDay(day) {
+        for (let back = 1; back <= 7; back++) {
+          const checkDay = allDays[(allDays.indexOf(day) - back + 7) % 7];
+          const dr = rulesForDay(checkDay);
+          if (dr.length) return dr[dr.length - 1];
+        }
+        return null;
+      }
+
+      const defDown = this.config.defaultDown || 0;
+      const defUp = this.config.defaultUp || 0;
+
+      // Build slots for each day
+      function buildSlots(day) {
+        const dr = rulesForDay(day);
+
+        const carry = lastRateOfPrevDay(day);
+        const startRate = carry ? { down: carry.down, up: carry.up } : { down: defDown, up: defUp };
+
+        // Days with no rules
+        if (!dr.length) {
+          const limited = startRate.down > 0 || startRate.up > 0;
+          const note = carry ? '(' + carry.label + ' carries over)' : 'Default rates';
+          return [{ from: '00:00', to: '00:00', down: startRate.down, up: startRate.up, limited, note }];
+        }
+        const slots = [];
+        let curDown = startRate.down, curUp = startRate.up;
+        let cursor = '00:00';
+
+        for (const r of dr) {
+          if (r.time !== cursor) {
+            const limited = curDown > 0 || curUp > 0;
+            const note = slots.length === 0 && carry ? '(' + carry.label + ' carries over)' : '';
+            slots.push({ from: cursor, to: r.time, down: curDown, up: curUp, limited, note });
+          }
+          curDown = r.down;
+          curUp = r.up;
+          cursor = r.time;
+        }
+
+        // Final slot to end of day
+        const limited = curDown > 0 || curUp > 0;
+        slots.push({ from: cursor, to: '00:00', down: curDown, up: curUp, limited, note: '' });
+
+        // Merge adjacent slots with same rate
+        const merged = [];
+        for (const s of slots) {
+          const prev = merged[merged.length - 1];
+          if (prev && prev.down === s.down && prev.up === s.up) {
+            prev.to = s.to;
+            if (!prev.note && s.note) prev.note = s.note;
+          } else {
+            merged.push({...s});
+          }
+        }
+        return merged;
+      }
+
+      // Group consecutive days with identical schedules
+      const daySlots = allDays.map(d => ({ day: d, slots: buildSlots(d) }));
+      const groups = [];
+      let current = null;
+
+      for (const ds of daySlots) {
+        const key = JSON.stringify(ds.slots.map(s => ({from:s.from,to:s.to,limited:s.limited,down:s.down,up:s.up})));
+        if (current && current.key === key) {
+          current.days.push(ds.day);
+        } else {
+          current = { key, days: [ds.day], slots: ds.slots };
+          groups.push(current);
+        }
+      }
+
+      return groups.map(g => {
+        let label;
+        if (g.days.length === 1) {
+          label = dayNames[g.days[0]];
+        } else {
+          label = dayNames[g.days[0]] + ' – ' + dayNames[g.days[g.days.length - 1]];
+        }
+        return { label, slots: g.slots };
+      });
+    },
+
+    isKnownDays(v) {
+      return ['','mon-fri','sat,sun','mon-thu','sun-thu','mon','tue','wed','thu','fri','sat','sun'].includes(v);
+    },
+
+    isUnlimited(dir) {
+      if (dir === 'down') {
+        return this.activeDown.active ? this.activeDown.rateMB === 0 : (this.config.defaultDown || 0) === 0;
+      }
+      return this.activeUp.active ? this.activeUp.rateMB === 0 : (this.config.defaultUp || 0) === 0;
+    },
+
+    get isLimited() {
+      return (this.activeDown.active && this.activeDown.rateMB > 0) ||
+             (this.activeUp.active && this.activeUp.rateMB > 0);
+    },
+
+    get statusBadgeClass() {
+      if (!this.config.enabled) return 'badge-disabled';
+      if (this.isLimited) return 'badge-limited';
+      return 'badge-active';
+    },
+
+    get statusBadgeText() {
+      if (!this.config.enabled) return 'Disabled';
+      if (this.isLimited) return 'Limited';
+      return 'Unlimited';
+    },
+
+    showToast(msg, type) {
+      this.toast = { show: true, msg, type };
+      setTimeout(() => { this.toast.show = false; }, 3000);
+    }
+  };
+}
+</script>
+</body>
+</html>
