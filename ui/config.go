@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -25,6 +26,12 @@ type ScheduleRule struct {
 	Days string `json:"days"`
 }
 
+type PortMapping struct {
+	Port  int    `json:"port"`            // WebUI port (e.g. 7073)
+	Name  string `json:"name"`            // Display name (e.g. qBit-movies)
+	Color string `json:"color,omitempty"` // Custom hex color (e.g. #f0883e)
+}
+
 type Config struct {
 	Enabled         bool           `json:"enabled"`
 	ScheduleEnabled bool           `json:"scheduleEnabled"`
@@ -34,6 +41,7 @@ type Config struct {
 	LogChanges      bool           `json:"logChanges"`
 	ConfigVersion   int            `json:"configVersion"`
 	Rules           []ScheduleRule `json:"rules"`
+	Ports           []PortMapping  `json:"ports,omitempty"`
 }
 
 const uiConfigPath = "/config/.traffic-ui.json"
@@ -59,6 +67,19 @@ func ValidateConfig(cfg *Config) error {
 		if rule.Down < 0 || rule.Up < 0 || rule.Down > 10000 || rule.Up > 10000 {
 			return fmt.Errorf("rule %d: rates must be 0-10000 MB/s", i+1)
 		}
+	}
+	seenPorts := make(map[int]bool)
+	for i, pm := range cfg.Ports {
+		if pm.Port < 1 || pm.Port > 65535 {
+			return fmt.Errorf("port %d: must be 1-65535", i+1)
+		}
+		if pm.Name == "" {
+			return fmt.Errorf("port %d: name is required", i+1)
+		}
+		if seenPorts[pm.Port] {
+			return fmt.Errorf("port %d: duplicate port %d", i+1, pm.Port)
+		}
+		seenPorts[pm.Port] = true
 	}
 	return nil
 }
@@ -86,8 +107,19 @@ func loadConfig(confPath string) (*Config, error) {
 	// If both exist, use whichever was modified more recently
 	if haveJSON && haveConf {
 		if confInfo.ModTime().After(jsonInfo.ModTime()) {
-			// traffic.conf was edited manually — re-parse it
-			return parseBashConfig(confPath)
+			// traffic.conf was edited manually — re-parse it, but preserve ports from JSON
+			cfg, err := parseBashConfig(confPath)
+			if err != nil {
+				return nil, err
+			}
+			// Ports are only stored in JSON — preserve them
+			if data, err := os.ReadFile(uiConfigPath); err == nil {
+				var jsonCfg Config
+				if err := json.Unmarshal(data, &jsonCfg); err == nil {
+					cfg.Ports = jsonCfg.Ports
+				}
+			}
+			return cfg, nil
 		}
 		// JSON is newer or same age — use it
 		data, err := os.ReadFile(uiConfigPath)
@@ -264,6 +296,181 @@ func generateBashConfig(cfg *Config) string {
 	}
 
 	return b.String()
+}
+
+// ActiveRuleInfo describes which rule is currently in effect
+type ActiveRuleInfo struct {
+	Source    string `json:"source"`              // "rule", "default", "disabled"
+	Index     int    `json:"index"`               // 1-based rule index (0 if default/disabled)
+	Time      string `json:"time"`                // rule time (empty if default)
+	Days      string `json:"days"`                // rule days (empty if default)
+	Down      int    `json:"down"`
+	Up        int    `json:"up"`
+	NextIndex int    `json:"nextIndex,omitempty"` // 1-based index of next rule (0 if none)
+	NextTime  string `json:"nextTime,omitempty"`  // time of next rule
+}
+
+// resolveActiveRule determines which schedule rule is currently active.
+// Mirrors nft-apply's resolve_current_rates logic.
+func resolveActiveRule(cfg *Config) ActiveRuleInfo {
+	if !cfg.Enabled {
+		return ActiveRuleInfo{Source: "disabled"}
+	}
+	if !cfg.ScheduleEnabled || len(cfg.Rules) == 0 {
+		return ActiveRuleInfo{Source: "default", Down: cfg.DefaultDown, Up: cfg.DefaultUp}
+	}
+
+	now := time.Now()
+	nowMins := now.Hour()*60 + now.Minute()
+	todayDow := strings.ToLower(now.Weekday().String()[:3])
+
+	allDays := []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+
+	// Check if a day matches a spec
+	dayMatches := func(day, spec string) bool {
+		if spec == "" {
+			return true
+		}
+		// Range
+		if strings.Contains(spec, "-") {
+			parts := strings.SplitN(spec, "-", 2)
+			start, end := strings.ToLower(parts[0]), strings.ToLower(parts[1])
+			inRange := false
+			for i := 0; i < 14; i++ {
+				d := allDays[i%7]
+				if d == start {
+					inRange = true
+				}
+				if inRange && d == day {
+					return true
+				}
+				if d == end && inRange {
+					break
+				}
+			}
+			return false
+		}
+		// Comma list
+		for _, d := range strings.Split(spec, ",") {
+			if strings.ToLower(strings.TrimSpace(d)) == day {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Find best matching rule: latest time that has passed today on matching day
+	type candidate struct {
+		ruleIdx int
+		rule    ScheduleRule
+		mins    int
+	}
+
+	findBest := func(dow string, maxMins int) *candidate {
+		var best *candidate
+		for i, r := range cfg.Rules {
+			if !dayMatches(dow, r.Days) {
+				continue
+			}
+			parts := strings.Split(r.Time, ":")
+			h, _ := strconv.Atoi(parts[0])
+			m, _ := strconv.Atoi(parts[1])
+			mins := h*60 + m
+			if mins <= maxMins {
+				if best == nil || mins > best.mins {
+					best = &candidate{ruleIdx: i, rule: r, mins: mins}
+				}
+			}
+		}
+		return best
+	}
+
+	// Find earliest rule on a given day (for finding next-day rules)
+	findEarliest := func(dow string) *candidate {
+		var earliest *candidate
+		for i, r := range cfg.Rules {
+			if !dayMatches(dow, r.Days) {
+				continue
+			}
+			parts := strings.Split(r.Time, ":")
+			h, _ := strconv.Atoi(parts[0])
+			m, _ := strconv.Atoi(parts[1])
+			mins := h*60 + m
+			if earliest == nil || mins < earliest.mins {
+				earliest = &candidate{ruleIdx: i, rule: r, mins: mins}
+			}
+		}
+		return earliest
+	}
+
+	// Find next rule after a given time on a given day
+	findNext := func(dow string, afterMins int) *candidate {
+		var next *candidate
+		for i, r := range cfg.Rules {
+			if !dayMatches(dow, r.Days) {
+				continue
+			}
+			parts := strings.Split(r.Time, ":")
+			h, _ := strconv.Atoi(parts[0])
+			m, _ := strconv.Atoi(parts[1])
+			mins := h*60 + m
+			if mins > afterMins {
+				if next == nil || mins < next.mins {
+					next = &candidate{ruleIdx: i, rule: r, mins: mins}
+				}
+			}
+		}
+		return next
+	}
+
+	// Check today first
+	best := findBest(todayDow, nowMins)
+
+	// If nothing today, look back up to 7 days
+	if best == nil {
+		for back := 1; back <= 7; back++ {
+			prevDay := now.AddDate(0, 0, -back)
+			dow := strings.ToLower(prevDay.Weekday().String()[:3])
+			best = findBest(dow, 1440)
+			if best != nil {
+				break
+			}
+		}
+	}
+
+	if best != nil {
+		info := ActiveRuleInfo{
+			Source: "rule",
+			Index:  best.ruleIdx + 1,
+			Time:   best.rule.Time,
+			Days:   best.rule.Days,
+			Down:   best.rule.Down,
+			Up:     best.rule.Up,
+		}
+
+		// Find next rule: first check later today, then upcoming days
+		nextToday := findNext(todayDow, nowMins)
+		if nextToday != nil {
+			info.NextIndex = nextToday.ruleIdx + 1
+			info.NextTime = nextToday.rule.Time
+		} else {
+			// Check tomorrow and forward (up to 7 days)
+			for fwd := 1; fwd <= 7; fwd++ {
+				futureDay := now.AddDate(0, 0, fwd)
+				dow := strings.ToLower(futureDay.Weekday().String()[:3])
+				earliest := findEarliest(dow)
+				if earliest != nil {
+					info.NextIndex = earliest.ruleIdx + 1
+					info.NextTime = earliest.rule.Time
+					break
+				}
+			}
+		}
+
+		return info
+	}
+
+	return ActiveRuleInfo{Source: "default", Down: cfg.DefaultDown, Up: cfg.DefaultUp}
 }
 
 // getNftCounters reads current nft rate limit rules and their counters

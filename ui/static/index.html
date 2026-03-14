@@ -187,6 +187,31 @@
     font-weight: 600;
   }
 
+  /* Active rule note */
+  .active-rule-note {
+    font-size: 12px;
+    margin-top: 8px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+
+  /* Graph tooltip */
+  .graph-tooltip {
+    position: absolute;
+    background: #1c2333;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 10;
+    white-space: nowrap;
+  }
+  .graph-tooltip .tt-time { color: #8b949e; margin-bottom: 2px; }
+  .graph-tooltip .tt-dl { color: #3fb950; }
+  .graph-tooltip .tt-ul { color: #58a6ff; }
+
   /* Info notes */
   .info-note {
     font-size: 12px;
@@ -296,6 +321,69 @@
   .toast-success { background: #1a3a2a; color: #3fb950; border: 1px solid #2ea043; }
   .toast-error { background: #3a1a1a; color: #f85149; border: 1px solid #f85149; }
 
+  /* Tabs */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #30363d;
+  }
+  .tab {
+    padding: 8px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #8b949e;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s;
+  }
+  .tab:hover { color: #e1e4e8; }
+  .tab-active { color: #e1e4e8; border-bottom-color: #58a6ff; }
+
+  /* Traffic graph */
+  .graph-container { position: relative; }
+  .graph-canvas {
+    width: 100%;
+    height: 200px;
+    display: block;
+  }
+  .period-btns {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+  }
+  .period-btn {
+    padding: 4px 12px;
+    border-radius: 4px;
+    border: 1px solid #30363d;
+    background: #0d1117;
+    color: #8b949e;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .period-btn:hover { color: #e1e4e8; }
+  .period-btn-active { background: #21262d; color: #e1e4e8; border-color: #58a6ff; }
+
+  /* Live speed */
+  .speed-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .speed-box {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 10px 14px;
+    text-align: center;
+  }
+  .speed-label { font-size: 11px; color: #8b949e; margin-bottom: 2px; }
+  .speed-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .speed-dl { color: #3fb950; }
+  .speed-ul { color: #58a6ff; }
+
   /* Footer */
   .footer {
     text-align: center;
@@ -310,36 +398,71 @@
 
   <!-- Header -->
   <div class="header">
-    <h1>vpn-gateway</h1>
+    <h1 x-text="gwName"></h1>
   </div>
 
-  <!-- Current Status -->
+  <!-- Always-visible live status -->
   <div class="card">
-    <div class="card-title" style="display:flex;align-items:center;gap:8px">
+    <div class="card-title" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
       Current Status
       <span class="status-badge" :class="statusBadgeClass" x-text="statusBadgeText"></span>
+      <span x-show="activeRule.source==='rule'" style="font-size:12px;color:#d29922"
+        x-text="'↓' + activeRule.down + ' ↑' + activeRule.up + ' MB/s'"></span>
     </div>
-    <div class="status-grid">
-      <div class="stat-box">
-        <div class="stat-label">Download</div>
-        <div class="stat-value">
-          <span x-text="activeDown.active ? activeDown.rateMB : config.defaultDown || 0"></span>
-          <span class="stat-unit" x-text="isUnlimited('down') ? '(unlimited)' : 'MB/s'"></span>
-        </div>
+    <div class="speed-grid">
+      <div class="speed-box">
+        <div class="speed-label">Download</div>
+        <div class="speed-value speed-dl" x-text="formatSpeed(currentDlSpeed)"></div>
       </div>
-      <div class="stat-box">
-        <div class="stat-label">Upload</div>
-        <div class="stat-value">
-          <span x-text="activeUp.active ? activeUp.rateMB : config.defaultUp || 0"></span>
-          <span class="stat-unit" x-text="isUnlimited('up') ? '(unlimited)' : 'MB/s'"></span>
-        </div>
+      <div class="speed-box">
+        <div class="speed-label">Peak (24h)</div>
+        <div class="speed-value speed-dl" x-text="formatSpeed(liveStats.maxRx24h)"></div>
+      </div>
+      <div class="speed-box">
+        <div class="speed-label">Avg (24h)</div>
+        <div class="speed-value speed-dl" x-text="formatSpeed(liveStats.avgRx24h)"></div>
+      </div>
+      <div class="speed-box">
+        <div class="speed-label">Volume (24h)</div>
+        <div class="speed-value speed-dl" x-text="formatBytes(liveStats.vol24hRx)"></div>
+      </div>
+      <div class="speed-box">
+        <div class="speed-label">Upload</div>
+        <div class="speed-value speed-ul" x-text="formatSpeed(currentUlSpeed)"></div>
+      </div>
+      <div class="speed-box">
+        <div class="speed-label">Peak (24h)</div>
+        <div class="speed-value speed-ul" x-text="formatSpeed(liveStats.maxTx24h)"></div>
+      </div>
+      <div class="speed-box">
+        <div class="speed-label">Avg (24h)</div>
+        <div class="speed-value speed-ul" x-text="formatSpeed(liveStats.avgTx24h)"></div>
+      </div>
+      <div class="speed-box">
+        <div class="speed-label">Volume (24h)</div>
+        <div class="speed-value speed-ul" x-text="formatBytes(liveStats.vol24hTx)"></div>
       </div>
     </div>
   </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab" :class="tab==='config' && 'tab-active'" @click="tab='config'">Config</div>
+    <div class="tab" :class="tab==='traffic' && 'tab-active'" @click="switchTab('traffic')">Traffic</div>
+    <div class="tab" :class="tab==='stats' && 'tab-active'" @click="switchTab('stats')">Stats</div>
+  </div>
+
+  <!-- ==================== CONFIG TAB ==================== -->
+  <div x-show="tab==='config'">
 
   <!-- Settings -->
   <div class="card">
-    <div class="card-title">Settings</div>
+    <div class="card-title" @click="showSettings=!showSettings" style="cursor:pointer;user-select:none">
+      <span x-text="showSettings ? '&#9660;' : '&#9654;'" style="font-size:10px;margin-right:4px"></span>
+      Settings
+    </div>
+    <template x-if="showSettings">
+    <div>
     <div class="toggle-row">
       <label class="toggle">
         <input type="checkbox" x-model="config.enabled">
@@ -381,18 +504,57 @@
           </div>
           <div class="form-group"></div>
         </div>
-        <div class="btn-row" style="justify-content:flex-end;margin-top:8px">
+        <!-- Port Mappings -->
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid #30363d">
+          <div style="font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:8px">Port Monitoring</div>
+          <div style="font-size:12px;color:#8b949e;margin-bottom:10px">
+            Add qBittorrent WebUI ports for per-instance traffic stats in the Traffic tab.
+          </div>
+          <template x-for="(pm, idx) in config.ports" :key="idx">
+            <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
+              <input type="color" :value="pm.color || defaultPortColors[idx % defaultPortColors.length]"
+                @input="pm.color=$event.target.value"
+                style="width:32px;height:32px;border:1px solid #30363d;border-radius:4px;background:#0d1117;cursor:pointer;padding:2px">
+              <input type="number" min="1" max="65535" x-model.number="pm.port" placeholder="Port"
+                style="width:80px;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+              <input type="text" x-model="pm.name" placeholder="Name (e.g. qBit-movies)"
+                style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+              <button class="btn-danger" @click="config.ports.splice(idx,1)" title="Remove">&times;</button>
+            </div>
+          </template>
+          <button class="btn btn-sm" @click="config.ports.push({port:0,name:'',color:''})">+ Add port</button>
+        </div>
+
+        <!-- Reset Stats -->
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid #30363d">
+          <div style="font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:4px">Reset Statistics</div>
+          <div style="font-size:12px;color:#8b949e;margin-bottom:8px">
+            Clears all traffic history, daily volumes, and per-service totals.
+            Use this after adding port monitoring to an already-running container,
+            so per-service totals start from the same point as VPN totals.
+          </div>
+          <button class="btn btn-sm" style="color:#f85149;border-color:#f85149"
+            @click="if(confirm('Reset all traffic statistics? This cannot be undone.')) resetStats()">Reset All Stats</button>
+        </div>
+
+        <div class="btn-row" style="justify-content:flex-end;margin-top:12px">
           <button class="btn btn-primary btn-sm" @click="save" :disabled="saving">
             <span x-text="saving ? 'Saving...' : 'Save'"></span>
           </button>
         </div>
       </div>
     </template>
+    </div>
+    </template>
   </div>
 
   <!-- Schedule -->
   <div class="card" x-show="config.enabled">
-    <div class="card-title">Schedule</div>
+    <div class="card-title" @click="showSchedule=!showSchedule" style="cursor:pointer;user-select:none">
+      <span x-text="showSchedule ? '&#9660;' : '&#9654;'" style="font-size:10px;margin-right:4px"></span>
+      Schedule
+    </div>
+    <div x-show="showSchedule">
     <div class="toggle-row">
       <label class="toggle">
         <input type="checkbox" x-model="config.scheduleEnabled">
@@ -447,9 +609,10 @@
                   <option value="sun">Sunday</option>
                   <option value="_custom">Custom...</option>
                 </select>
-                <div x-show="rule._custom || !isKnownDays(rule.days)" style="display:flex;gap:4px;align-items:center">
-                  <input type="text" x-model="rule.days" placeholder="e.g. mon,wed,fri" style="flex:1">
-                  <button class="btn btn-sm" @click="rule._custom=false;if(!rule.days)rule.days=''" style="padding:4px 6px;font-size:11px" title="Back to dropdown">&#x2190;</button>
+                <div x-show="rule._custom || !isKnownDays(rule.days)" style="position:relative">
+                  <input type="text" x-model="rule.days" placeholder="e.g. mon,wed,fri" style="width:100%;padding-right:24px">
+                  <span @click="rule.days='';rule._custom=false" title="Clear"
+                    style="position:absolute;right:6px;top:50%;transform:translateY(-50%);cursor:pointer;color:#f85149;font-size:14px;line-height:1">&times;</span>
                 </div>
               </div>
               <button class="btn-danger" @click="removeRule(idx)" title="Remove">&times;</button>
@@ -495,19 +658,244 @@
         </template>
       </div>
     </template>
+    </div>
   </div>
 
+
+  </div><!-- end config tab -->
+
+  <!-- ==================== TRAFFIC TAB ==================== -->
+  <div x-show="tab==='traffic'">
+
+    <!-- Graph -->
+    <div class="card">
+      <div class="card-title">Throughput</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="period-btns">
+          <template x-for="p in ['1h','6h','24h','72h']" :key="p">
+            <button class="period-btn" :class="graphPeriod===p && 'period-btn-active'"
+              @click="switchPeriod(p)" x-text="p"></button>
+          </template>
+        </div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+          <button class="period-btn" :class="graphShow==='both' && 'period-btn-active'" @click="graphShow='both';drawGraph()" style="color:#8b949e">Both</button>
+          <button class="period-btn" :class="graphShow==='dl' && 'period-btn-active'" @click="graphShow='dl';drawGraph()" style="color:#3fb950">DL</button>
+          <button class="period-btn" :class="graphShow==='ul' && 'period-btn-active'" @click="graphShow='ul';drawGraph()" style="color:#58a6ff">UL</button>
+          <span style="color:#30363d;margin:0 4px">|</span>
+          <button class="period-btn" :class="graphTotal && 'period-btn-active'"
+            @click="graphTotal=!graphTotal;drawGraph()" style="color:#8b949e">Total</button>
+          <template x-for="(pm, idx) in (config.ports||[])" :key="pm.port">
+            <button class="period-btn"
+              :class="graphPorts[pm.port] && 'period-btn-active'"
+              :style="'color:' + portColor(idx)"
+              @click="graphPorts[pm.port]=!graphPorts[pm.port];drawGraph()"
+              x-text="pm.name"></button>
+          </template>
+        </div>
+      </div>
+      <div class="graph-container" @mouseleave="graphTooltip.show=false">
+        <canvas class="graph-canvas" x-ref="trafficCanvas"
+          @mousemove="graphHover($event)"></canvas>
+        <div class="graph-tooltip" x-show="graphTooltip.show" x-cloak
+          :style="'left:'+graphTooltip.x+'px;top:'+graphTooltip.y+'px'">
+          <div class="tt-time" x-text="graphTooltip.time"></div>
+          <div class="tt-dl" x-text="'↓ ' + graphTooltip.dl"></div>
+          <div class="tt-ul" x-text="'↑ ' + graphTooltip.ul"></div>
+          <template x-for="pp in graphTooltip.ports" :key="pp.name">
+            <div style="font-size:11px" :style="'color:'+pp.color">
+              <span x-text="pp.name + ': ↓' + pp.dl + ' ↑' + pp.ul"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- Per-Port Breakdown -->
+    <template x-if="liveStats.ports && liveStats.ports.length > 0">
+      <div class="card">
+        <div class="card-title">Per-Service Traffic</div>
+        <div style="display:grid;grid-template-columns:1fr repeat(4,auto);gap:8px 16px;font-size:13px;align-items:center">
+          <div style="font-size:11px;color:#8b949e;text-transform:uppercase">Service</div>
+          <div style="font-size:11px;color:#8b949e;text-transform:uppercase;text-align:right">Download</div>
+          <div style="font-size:11px;color:#8b949e;text-transform:uppercase;text-align:right">Upload</div>
+          <div style="font-size:11px;color:#8b949e;text-transform:uppercase;text-align:right">Total DL</div>
+          <div style="font-size:11px;color:#8b949e;text-transform:uppercase;text-align:right">Total UL</div>
+          <template x-for="(ps, psIdx) in liveStats.ports" :key="ps.port">
+            <template x-if="true">
+              <div style="display:contents">
+                <div>
+                  <span x-text="ps.name" style="font-weight:500"
+                    :style="'color:' + portColor((config.ports||[]).findIndex(p=>p.port===ps.port))"></span>
+                  <span style="color:#484f58;font-size:11px" x-text="':' + ps.port"></span>
+                </div>
+                <div style="text-align:right" class="speed-dl" x-text="formatSpeed(ps.rxRate)"></div>
+                <div style="text-align:right" class="speed-ul" x-text="formatSpeed(ps.txRate)"></div>
+                <div style="text-align:right;color:#8b949e" x-text="formatBytes(ps.rxBytes)"></div>
+                <div style="text-align:right;color:#8b949e" x-text="formatBytes(ps.txBytes)"></div>
+              </div>
+            </template>
+          </template>
+        </div>
+      </div>
+    </template>
+
+  </div><!-- end traffic tab -->
+
+  <!-- ==================== STATS TAB ==================== -->
+  <div x-show="tab==='stats'">
+
+    <!-- Total Volume -->
+    <div class="card">
+      <div class="card-title" x-text="gwName + ' Volume'"></div>
+
+      <div class="period-btns" style="margin-bottom:16px">
+        <template x-for="p in ['7d','30d','3m','6m','12m','All']" :key="p">
+          <button class="period-btn" :class="statsPeriod===p && 'period-btn-active'"
+            @click="statsPeriod=p;$nextTick(()=>drawStatsChart())" x-text="p"></button>
+        </template>
+      </div>
+
+      <!-- Summary -->
+      <div class="speed-grid" style="margin-bottom:16px">
+        <div class="speed-box">
+          <div class="speed-label">Total Download</div>
+          <div class="speed-value speed-dl" x-text="formatBytes(statsSummary.totalRx)"></div>
+        </div>
+        <div class="speed-box">
+          <div class="speed-label">Total Upload</div>
+          <div class="speed-value speed-ul" x-text="formatBytes(statsSummary.totalTx)"></div>
+        </div>
+        <div class="speed-box">
+          <div class="speed-label" x-text="statsSummary.avgLabel + ' DL'"></div>
+          <div class="speed-value speed-dl" x-text="formatBytes(statsSummary.avgRx)"></div>
+        </div>
+        <div class="speed-box">
+          <div class="speed-label" x-text="statsSummary.avgLabel + ' UL'"></div>
+          <div class="speed-value speed-ul" x-text="formatBytes(statsSummary.avgTx)"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:12px;font-size:11px;color:#8b949e;margin-bottom:8px">
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:linear-gradient(180deg,#3fb950,#1a3a2a);vertical-align:middle;margin-right:4px"></span>Download</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:linear-gradient(180deg,#58a6ff,#1c2541);vertical-align:middle;margin-right:4px"></span>Upload</span>
+      </div>
+
+      <div style="position:relative">
+        <canvas x-ref="statsCanvas" style="width:100%;height:220px;display:block"
+          @mousemove="statsBarHover($event, 'total')"
+          @mouseleave="totalTooltip.show=false"></canvas>
+        <div class="graph-tooltip" x-show="totalTooltip.show" x-cloak
+          :style="'left:'+totalTooltip.x+'px;top:'+totalTooltip.y+'px'">
+          <div class="tt-time" x-text="totalTooltip.date"></div>
+          <div class="tt-dl" x-text="'↓ ' + totalTooltip.dl"></div>
+          <div class="tt-ul" x-text="'↑ ' + totalTooltip.ul"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Per-Service Volume -->
+    <template x-if="config.ports && config.ports.length > 0">
+      <div class="card">
+        <div class="card-title">Per-Service Volume</div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div class="period-btns">
+          <template x-for="p in ['7d','30d','3m','6m','12m','All']" :key="p">
+            <button class="period-btn" :class="statsPeriod===p && 'period-btn-active'"
+              @click="statsPeriod=p;$nextTick(()=>{drawStatsChart();drawServiceChart()})" x-text="p"></button>
+          </template>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="period-btn"
+            :class="statsShowTotal && 'period-btn-active'"
+            style="color:#8b949e"
+            @click="statsShowTotal=!statsShowTotal;$nextTick(()=>drawServiceChart())" x-text="gwName"></button>
+          <template x-for="(pm, idx) in config.ports" :key="pm.port">
+            <button class="period-btn"
+              :class="statsServiceVisible[pm.port]!==false && 'period-btn-active'"
+              :style="'color:' + portColor(idx)"
+              @click="statsServiceVisible[pm.port]=statsServiceVisible[pm.port]===false?true:false;$nextTick(()=>drawServiceChart())"
+              x-text="pm.name"></button>
+          </template>
+        </div>
+        </div>
+
+        <div style="position:relative">
+          <canvas x-ref="serviceCanvas" style="width:100%;height:220px;display:block"
+            @mousemove="statsBarHover($event, 'service')"
+            @mouseleave="serviceTooltip.show=false"></canvas>
+          <div class="graph-tooltip" x-show="serviceTooltip.show" x-cloak
+            :style="'left:'+serviceTooltip.x+'px;top:'+serviceTooltip.y+'px'">
+            <div class="tt-time" x-text="serviceTooltip.date"></div>
+            <div style="display:grid;grid-template-columns:auto auto auto auto;gap:1px 8px;font-size:11px;margin-top:4px">
+              <template x-for="row in serviceTooltip.rows" :key="row.name">
+                <template x-if="true">
+                  <div style="display:contents">
+                    <div :style="'color:'+row.color" x-text="row.name"></div>
+                    <div class="speed-dl" style="text-align:right" x-text="'↓'+row.dl"></div>
+                    <div class="speed-ul" style="text-align:right" x-text="'↑'+row.ul"></div>
+                    <div style="text-align:right;color:#484f58" x-text="row.pct+'%'"></div>
+                  </div>
+                </template>
+              </template>
+              <div style="color:#c9d1d9;border-top:1px solid #30363d;padding-top:2px" x-text="gwName"></div>
+              <div class="speed-dl" style="text-align:right;border-top:1px solid #30363d;padding-top:2px" x-text="'↓'+serviceTooltip.totalDl"></div>
+              <div class="speed-ul" style="text-align:right;border-top:1px solid #30363d;padding-top:2px" x-text="'↑'+serviceTooltip.totalUl"></div>
+              <div style="text-align:right;color:#484f58;border-top:1px solid #30363d;padding-top:2px">100%</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Period totals table -->
+        <div style="border-top:1px solid #21262d;margin-top:16px;padding-top:12px">
+          <div style="font-size:12px;color:#8b949e;text-transform:uppercase;margin-bottom:8px"
+            x-text="'Period totals (' + statsPeriod + ')'"></div>
+          <div style="display:grid;grid-template-columns:1fr auto auto auto auto auto;gap:4px 12px;font-size:13px;align-items:center">
+            <!-- Header -->
+            <div style="font-size:11px;color:#484f58"></div>
+            <div style="font-size:11px;color:#484f58;text-align:right">Total DL</div>
+            <div style="font-size:11px;color:#484f58;text-align:right">Total UL</div>
+            <div style="font-size:11px;color:#484f58;text-align:right" x-text="statsSummary.avgLabel+' DL'"></div>
+            <div style="font-size:11px;color:#484f58;text-align:right" x-text="statsSummary.avgLabel+' UL'"></div>
+            <div style="font-size:11px;color:#484f58;text-align:right">%</div>
+            <!-- Services -->
+            <template x-for="(pm, idx) in config.ports" :key="pm.port">
+              <template x-if="true">
+                <div style="display:contents">
+                  <div :style="'font-weight:500;color:'+portColor(idx)" x-text="pm.name"></div>
+                  <div class="speed-dl" style="text-align:right" x-text="'↓'+formatBytes(serviceTotal(pm.port).rx)"></div>
+                  <div class="speed-ul" style="text-align:right" x-text="'↑'+formatBytes(serviceTotal(pm.port).tx)"></div>
+                  <div class="speed-dl" style="text-align:right" x-text="'↓'+formatBytes(serviceTotal(pm.port).avgRx)"></div>
+                  <div class="speed-ul" style="text-align:right" x-text="'↑'+formatBytes(serviceTotal(pm.port).avgTx)"></div>
+                  <div style="text-align:right;color:#484f58;font-size:11px" x-text="serviceTotal(pm.port).pct+'%'"></div>
+                </div>
+              </template>
+            </template>
+            <!-- Total row -->
+            <div style="font-weight:600;color:#c9d1d9;border-top:1px solid #21262d;padding-top:6px" x-text="gwName"></div>
+            <div class="speed-dl" style="text-align:right;border-top:1px solid #21262d;padding-top:6px" x-text="'↓'+formatBytes(statsSummary.totalRx)"></div>
+            <div class="speed-ul" style="text-align:right;border-top:1px solid #21262d;padding-top:6px" x-text="'↑'+formatBytes(statsSummary.totalTx)"></div>
+            <div class="speed-dl" style="text-align:right;border-top:1px solid #21262d;padding-top:6px" x-text="'↓'+formatBytes(statsSummary.avgRx)"></div>
+            <div class="speed-ul" style="text-align:right;border-top:1px solid #21262d;padding-top:6px" x-text="'↑'+formatBytes(statsSummary.avgTx)"></div>
+            <div style="text-align:right;border-top:1px solid #21262d;padding-top:6px;color:#484f58;font-size:11px">100%</div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+  </div><!-- end stats tab -->
 
   <!-- Toast -->
   <div class="toast" :class="toast.type" x-show="toast.show" x-transition x-text="toast.msg"></div>
 
   <!-- Footer -->
-  <div class="footer">vpn-gateway</div>
+  <div class="footer" x-text="gwName"></div>
 </div>
 
 <script>
 function app() {
   return {
+    tab: 'config',
     config: {
       enabled: true,
       scheduleEnabled: false,
@@ -516,19 +904,43 @@ function app() {
       burstMs: 500,
       logChanges: true,
       configVersion: 1,
-      rules: []
+      rules: [],
+      ports: []
     },
     activeUp: { active: false, rateMB: 0 },
     activeDown: { active: false, rateMB: 0 },
+    activeRule: { source: 'default', index: 0 },
+    gwName: 'vpn-gateway',
     saving: false,
+    showSettings: false,
+    showSchedule: true,
     showSummary: true,
     toast: { show: false, msg: '', type: '' },
     pollTimer: null,
+
+    // Traffic stats
+    defaultPortColors: ['#f0883e','#a371f7','#f778ba','#79c0ff','#d2a8ff','#ffd33d'],
+    dailyData: [],
+    statsPeriod: '7d',
+    statsServiceVisible: {},
+    statsShowTotal: false,
+    totalTooltip: { show: false, x: 0, y: 0, date: '', dl: '', ul: '' },
+    serviceTooltip: { show: false, x: 0, y: 0, date: '', rows: [] },
+    liveStats: { rxRate: 0, txRate: 0, maxRx24h: 0, maxTx24h: 0, avgRx24h: 0, avgTx24h: 0, totalRx: 0, totalTx: 0, vol24hRx: 0, vol24hTx: 0 },
+    graphPeriod: '1h',
+    graphShow: 'both',
+    graphTotal: true, // show total line
+    graphPorts: {}, // {port: true/false} — which instances to show
+    graphData: [],
+    graphTooltip: { show: false, x: 0, y: 0, time: '', dl: '', ul: '' },
+    statsSSE: null,
 
     async init() {
       await this.reload();
       // Poll status every 5s
       this.pollTimer = setInterval(() => this.fetchStatus(), 5000);
+      // Always connect SSE for live speed display
+      this.connectSSE();
     },
 
     async reload() {
@@ -548,8 +960,11 @@ function app() {
         this.config.logChanges = cfg.logChanges !== false;
         this.config.configVersion = cfg.configVersion || 1;
         this.config.rules = (cfg.rules || []).map(r => ({...r}));
+        this.config.ports = (cfg.ports || []).map(p => ({...p}));
         this.activeUp = status.activeUp || { active: false, rateMB: 0 };
         this.activeDown = status.activeDown || { active: false, rateMB: 0 };
+        this.activeRule = status.activeRule || { source: 'default', index: 0 };
+        if (status.hostname) this.gwName = status.hostname;
       } catch (e) {
         this.showToast('Failed to load config: ' + e.message, 'toast-error');
       }
@@ -562,6 +977,7 @@ function app() {
         if (!data.error) {
           this.activeUp = data.activeUp || { active: false, rateMB: 0 };
           this.activeDown = data.activeDown || { active: false, rateMB: 0 };
+          this.activeRule = data.activeRule || { source: 'default', index: 0 };
         }
       } catch {}
     },
@@ -755,6 +1171,20 @@ function app() {
       return this.activeUp.active ? this.activeUp.rateMB === 0 : (this.config.defaultUp || 0) === 0;
     },
 
+    // Use qBit API sum when ports configured, otherwise wg0 interface stats
+    get currentDlSpeed() {
+      if (this.liveStats.ports && this.liveStats.ports.length > 0) {
+        return this.liveStats.ports.reduce((sum, p) => sum + (p.rxRate || 0), 0);
+      }
+      return this.liveStats.rxRate;
+    },
+    get currentUlSpeed() {
+      if (this.liveStats.ports && this.liveStats.ports.length > 0) {
+        return this.liveStats.ports.reduce((sum, p) => sum + (p.txRate || 0), 0);
+      }
+      return this.liveStats.txRate;
+    },
+
     get isLimited() {
       return (this.activeDown.active && this.activeDown.rateMB > 0) ||
              (this.activeUp.active && this.activeUp.rateMB > 0);
@@ -768,8 +1198,943 @@ function app() {
 
     get statusBadgeText() {
       if (!this.config.enabled) return 'Disabled';
-      if (this.isLimited) return 'Limited';
-      return 'Unlimited';
+      const r = this.activeRule;
+      if (r.source !== 'rule') {
+        return this.isLimited ? 'Limited' : 'Unlimited';
+      }
+      const state = this.isLimited ? 'Limited' : 'Unlimited';
+      let text = state + ' (R' + r.index;
+      if (r.nextIndex) text += ' → R' + r.nextIndex + ' ' + r.nextTime;
+      text += ')';
+      return text;
+    },
+
+    // --- Traffic tab ---
+
+    switchTab(t) {
+      this.tab = t;
+      if (t === 'traffic') {
+        this.fetchHistory();
+        this.fetchDaily();
+      }
+      if (t === 'stats') {
+        this.fetchDaily();
+        this.$nextTick(() => this.drawStatsChart());
+      }
+    },
+
+    async fetchDaily() {
+      try {
+        const res = await fetch('/api/stats/daily');
+        this.dailyData = (await res.json()) || [];
+      } catch {}
+    },
+
+    dailyBarWidth(bytes, type) {
+      if (!this.dailyData.length) return 0;
+      let max = 0;
+      for (const d of this.dailyData) {
+        if (d.rxBytes > max) max = d.rxBytes;
+        if (d.txBytes > max) max = d.txBytes;
+      }
+      if (max === 0) return 0;
+      return Math.max(2, (bytes / max) * 100);
+    },
+
+    connectSSE() {
+      if (this.statsSSE || this._sseReconnecting) return;
+      this.statsSSE = new EventSource('/api/stats/stream');
+      this._dailyPollCount = 0;
+      this.statsSSE.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        this.liveStats = data;
+        // Refresh daily volume every ~30s (10 SSE messages at 3s each)
+        if (++this._dailyPollCount >= 10) {
+          this._dailyPollCount = 0;
+          if (this.tab === 'traffic' || this.tab === 'stats') {
+            this.fetchDaily();
+            if (this.tab === 'stats') this.$nextTick(() => { this.drawStatsChart(); this.drawServiceChart(); });
+          }
+        }
+        // Append to graph data for live updates (1h view)
+        if (this.graphPeriod === '1h' && data.rxRate !== undefined) {
+          const pt = { t: Math.floor(Date.now()/1000), r: data.rxRate, s: data.txRate };
+          // Include per-port rates from SSE
+          if (data.ports && data.ports.length > 0) {
+            pt.p = {};
+            for (const ps of data.ports) {
+              pt.p[ps.port] = { r: ps.rxRate, s: ps.txRate };
+            }
+          }
+          this.graphData.push(pt);
+          // Keep max 1200 points
+          if (this.graphData.length > 1200) this.graphData.shift();
+          this.drawGraph();
+        }
+      };
+      this.statsSSE.onerror = () => {
+        if (this.statsSSE) {
+          this.statsSSE.close();
+          this.statsSSE = null;
+        }
+        if (!this._sseReconnecting) {
+          this._sseReconnecting = true;
+          setTimeout(() => { this._sseReconnecting = false; this.connectSSE(); }, 3000);
+        }
+      };
+    },
+
+    disconnectSSE() {
+      if (this.statsSSE) {
+        this.statsSSE.close();
+        this.statsSSE = null;
+      }
+    },
+
+    async fetchHistory() {
+      try {
+        const res = await fetch('/api/stats/history?period=' + this.graphPeriod);
+        this.graphData = await res.json() || [];
+        this.$nextTick(() => this.drawGraph());
+      } catch {}
+    },
+
+    switchPeriod(p) {
+      this.graphPeriod = p;
+      this.fetchHistory();
+    },
+
+    graphHover(e) {
+      const canvas = this.$refs.trafficCanvas;
+      if (!canvas || this.graphData.length < 2) { this.graphTooltip.show = false; return; }
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const pad = { left: 55, right: 10 };
+      const gW = rect.width - pad.left - pad.right;
+      if (mx < pad.left || mx > rect.width - pad.right) { this.graphTooltip.show = false; return; }
+
+      const data = this.graphData;
+      const tMin = data[0].t, tMax = data[data.length - 1].t;
+      const tRange = tMax - tMin || 1;
+      const t = tMin + ((mx - pad.left) / gW) * tRange;
+
+      // Find closest point
+      let closest = 0, minDist = Infinity;
+      for (let i = 0; i < data.length; i++) {
+        const d = Math.abs(data[i].t - t);
+        if (d < minDist) { minDist = d; closest = i; }
+      }
+      const p = data[closest];
+      const d = new Date(p.t * 1000);
+      const timeStr = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ':' + d.getSeconds().toString().padStart(2,'0');
+
+      const ports = (this.config.ports || []).map((pm, idx) => {
+        const pr = p.p && p.p[pm.port];
+        return {
+          name: pm.name,
+          color: this.portColor(idx),
+          dl: this.formatSpeed(pr ? pr.r : 0),
+          ul: this.formatSpeed(pr ? pr.s : 0)
+        };
+      }).filter(pp => pp.dl !== '0 MB/s' || pp.ul !== '0 MB/s');
+
+      this.graphTooltip = {
+        show: true,
+        x: Math.min(mx + 12, rect.width - 180),
+        y: Math.max(e.clientY - rect.top - 60 - ports.length * 16, 0),
+        time: timeStr,
+        dl: this.formatSpeed(p.r),
+        ul: this.formatSpeed(p.s),
+        ports
+      };
+    },
+
+    portColor(idx) {
+      const pm = (this.config.ports || [])[idx];
+      return (pm && pm.color) || this.defaultPortColors[idx % this.defaultPortColors.length];
+    },
+
+    formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return '0 B';
+      const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+      let i = 0;
+      let val = bytes;
+      while (val >= 1024 && i < units.length - 1) { val /= 1024; i++; }
+      return val.toFixed(i > 1 ? 1 : 0) + ' ' + units[i];
+    },
+
+    formatSpeed(bytesPerSec) {
+      if (!bytesPerSec || bytesPerSec <= 0) return '0 MB/s';
+      const mb = bytesPerSec / (1024 * 1024);
+      if (mb >= 1000) return (mb / 1024).toFixed(1) + ' GB/s';
+      if (mb >= 100) return mb.toFixed(0) + ' MB/s';
+      if (mb >= 10) return mb.toFixed(1) + ' MB/s';
+      return mb.toFixed(2) + ' MB/s';
+    },
+
+    // Downsample data for smooth display — average points per bucket
+    smoothData(raw, maxPoints) {
+      if (raw.length <= maxPoints) return raw;
+      const bucketSize = Math.ceil(raw.length / maxPoints);
+      const result = [];
+      for (let i = 0; i < raw.length; i += bucketSize) {
+        const bucket = raw.slice(i, Math.min(i + bucketSize, raw.length));
+        const avg = { t: 0, r: 0, s: 0 };
+        // Collect port keys
+        const portSums = {};
+        let portCount = 0;
+        for (const p of bucket) {
+          avg.t += p.t;
+          avg.r += p.r;
+          avg.s += p.s;
+          if (p.p) {
+            for (const [port, pr] of Object.entries(p.p)) {
+              if (!portSums[port]) portSums[port] = { r: 0, s: 0, n: 0 };
+              portSums[port].r += pr.r;
+              portSums[port].s += pr.s;
+              portSums[port].n++;
+            }
+          }
+        }
+        const n = bucket.length;
+        avg.t = Math.round(avg.t / n);
+        avg.r = avg.r / n;
+        avg.s = avg.s / n;
+        if (Object.keys(portSums).length > 0) {
+          avg.p = {};
+          for (const [port, ps] of Object.entries(portSums)) {
+            avg.p[parseInt(port)] = { r: ps.r / ps.n, s: ps.s / ps.n };
+          }
+        }
+        result.push(avg);
+      }
+      return result;
+    },
+
+    drawGraph() {
+      const canvas = this.$refs.trafficCanvas;
+      if (!canvas || !this.graphData.length) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      const W = rect.width, H = rect.height;
+
+      // Smooth data to max ~200 points for clean bezier curves
+      const data = this.smoothData(this.graphData, 200);
+      if (data.length < 2) {
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = '#484f58';
+        ctx.font = '13px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Collecting data...', W/2, H/2);
+        return;
+      }
+      const pad = { top: 10, right: 10, bottom: 25, left: 55 };
+      const gW = W - pad.left - pad.right;
+      const gH = H - pad.top - pad.bottom;
+
+      // Find max rate for Y scale (only visible series)
+      const minScale = 10 * 1024 * 1024; // 10 MB/s minimum scale
+      let maxRate = minScale;
+      for (const p of data) {
+        if (this.graphTotal) {
+          if (this.graphShow !== 'ul' && p.r > maxRate) maxRate = p.r;
+          if (this.graphShow !== 'dl' && p.s > maxRate) maxRate = p.s;
+        }
+        // Check visible port data
+        if (p.p) {
+          for (const pm of (this.config.ports || [])) {
+            if (!this.graphPorts[pm.port]) continue;
+            const pr = p.p[pm.port];
+            if (pr) {
+              const val = this.graphShow === 'ul' ? pr.s : pr.r;
+              if (val > maxRate) maxRate = val;
+            }
+          }
+        }
+      }
+      maxRate *= 1.1; // 10% headroom
+
+      // Clear
+      ctx.clearRect(0, 0, W, H);
+
+      // Grid lines
+      ctx.strokeStyle = '#21262d';
+      ctx.lineWidth = 1;
+      const gridLines = 4;
+      for (let i = 0; i <= gridLines; i++) {
+        const y = pad.top + (gH / gridLines) * i;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+
+        // Y labels
+        const val = maxRate * (1 - i / gridLines);
+        ctx.fillStyle = '#484f58';
+        ctx.font = '11px -apple-system, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(this.formatSpeed(val), pad.left - 6, y + 4);
+      }
+
+      // Time labels
+      const tMin = data[0].t, tMax = data[data.length - 1].t;
+      const tRange = tMax - tMin || 1;
+      ctx.fillStyle = '#484f58';
+      ctx.textAlign = 'center';
+      const numLabels = 6;
+      for (let i = 0; i <= numLabels; i++) {
+        const t = tMin + (tRange / numLabels) * i;
+        const x = pad.left + (gW / numLabels) * i;
+        const d = new Date(t * 1000);
+        const lbl = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+        ctx.fillText(lbl, x, H - 4);
+      }
+
+      // Helper: map data point to canvas coords
+      const px = (i) => pad.left + ((data[i].t - tMin) / tRange) * gW;
+      const pyRx = (i) => pad.top + gH - (data[i].r / maxRate) * gH;
+      const pyTx = (i) => pad.top + gH - (data[i].s / maxRate) * gH;
+
+      // Clip to graph area — prevents bezier overshoot below 0
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(pad.left, pad.top, gW, gH);
+      ctx.clip();
+
+      // Draw area + line for a series
+      const drawSeries = (pyFn, lineColor, fillColor) => {
+        if (data.length < 2) return;
+
+        // Smooth curve using cardinal spline
+        ctx.beginPath();
+        ctx.moveTo(px(0), pyFn(0));
+        for (let i = 0; i < data.length - 1; i++) {
+          const x0 = px(Math.max(0, i-1)), y0 = pyFn(Math.max(0, i-1));
+          const x1 = px(i), y1 = pyFn(i);
+          const x2 = px(i+1), y2 = pyFn(i+1);
+          const x3 = px(Math.min(data.length-1, i+2)), y3 = pyFn(Math.min(data.length-1, i+2));
+          const cp1x = x1 + (x2 - x0) / 6;
+          const cp1y = y1 + (y2 - y0) / 6;
+          const cp2x = x2 - (x3 - x1) / 6;
+          const cp2y = y2 - (y3 - y1) / 6;
+          ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
+        }
+
+        // Fill area
+        ctx.lineTo(px(data.length-1), pad.top + gH);
+        ctx.lineTo(px(0), pad.top + gH);
+        ctx.closePath();
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+
+        // Draw line
+        ctx.beginPath();
+        ctx.moveTo(px(0), pyFn(0));
+        for (let i = 0; i < data.length - 1; i++) {
+          const x0 = px(Math.max(0, i-1)), y0 = pyFn(Math.max(0, i-1));
+          const x1 = px(i), y1 = pyFn(i);
+          const x2 = px(i+1), y2 = pyFn(i+1);
+          const x3 = px(Math.min(data.length-1, i+2)), y3 = pyFn(Math.min(data.length-1, i+2));
+          const cp1x = x1 + (x2 - x0) / 6;
+          const cp1y = y1 + (y2 - y0) / 6;
+          const cp2x = x2 - (x3 - x1) / 6;
+          const cp2y = y2 - (y3 - y1) / 6;
+          ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
+        }
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      };
+
+      // Total: Download (green), Upload (blue)
+      if (this.graphTotal) {
+        if (this.graphShow !== 'ul') drawSeries(pyRx, '#3fb950', 'rgba(63,185,80,0.15)');
+        if (this.graphShow !== 'dl') drawSeries(pyTx, '#58a6ff', 'rgba(88,166,255,0.15)');
+      }
+
+      // Per-instance lines (thinner, no fill)
+      if (this.config.ports && this.config.ports.length > 0) {
+        const drawPortLine = (portNum, color) => {
+          if (data.length < 2) return;
+          // Only draw if port data exists in at least some points
+          const hasData = data.some(p => p.p && p.p[portNum]);
+          if (!hasData) return;
+
+          const portPy = (i) => {
+            const pr = data[i].p && data[i].p[portNum];
+            const val = pr ? (this.graphShow === 'ul' ? pr.s : pr.r) : 0;
+            return pad.top + gH - (val / maxRate) * gH;
+          };
+
+          ctx.beginPath();
+          ctx.moveTo(px(0), portPy(0));
+          for (let i = 0; i < data.length - 1; i++) {
+            const x0 = px(Math.max(0, i-1)), y0 = portPy(Math.max(0, i-1));
+            const x1 = px(i), y1 = portPy(i);
+            const x2 = px(i+1), y2 = portPy(i+1);
+            const x3 = px(Math.min(data.length-1, i+2)), y3 = portPy(Math.min(data.length-1, i+2));
+            ctx.bezierCurveTo(x1+(x2-x0)/6, y1+(y2-y0)/6, x2-(x3-x1)/6, y2-(y3-y1)/6, x2, y2);
+          }
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 2]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        };
+
+        this.config.ports.forEach((pm, idx) => {
+          if (this.graphPorts[pm.port]) {
+            drawPortLine(pm.port, this.portColor(idx));
+          }
+        });
+      }
+
+      ctx.restore(); // Remove clip
+
+      // Draw rate limit line (dashed)
+      const limitDown = this.activeRule.down || 0;
+      const limitUp = this.activeRule.up || 0;
+      const drawLimit = (rateMB, color) => {
+        if (rateMB <= 0) return;
+        const rateBytes = rateMB * 1024 * 1024;
+        if (rateBytes > maxRate) return; // off-scale
+        const y = pad.top + gH - (rateBytes / maxRate) * gH;
+        ctx.beginPath();
+        ctx.setLineDash([6, 4]);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = color;
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(rateMB + ' MB/s limit', W - pad.right, y - 4);
+      };
+      if (this.graphShow !== 'ul') drawLimit(limitDown, 'rgba(210,153,34,0.6)');
+      if (this.graphShow !== 'dl') drawLimit(limitUp, 'rgba(210,153,34,0.4)');
+
+      // Legend
+      ctx.font = '11px -apple-system, sans-serif';
+      ctx.textAlign = 'left';
+      let legendX = pad.left + 8;
+      const legendY = pad.top + 4;
+
+      if (this.graphTotal) {
+        if (this.graphShow !== 'ul') {
+          ctx.fillStyle = '#3fb950';
+          ctx.fillRect(legendX, legendY, 10, 3);
+          ctx.fillStyle = '#8b949e';
+          ctx.fillText('Download', legendX + 14, legendY + 5);
+          legendX += 85;
+        }
+        if (this.graphShow !== 'dl') {
+          ctx.fillStyle = '#58a6ff';
+          ctx.fillRect(legendX, legendY, 10, 3);
+          ctx.fillStyle = '#8b949e';
+          ctx.fillText('Upload', legendX + 14, legendY + 5);
+          legendX += 70;
+        }
+      }
+      // Port legends (only visible ones)
+      if (this.config.ports) {
+        this.config.ports.forEach((pm, idx) => {
+          if (!this.graphPorts[pm.port]) return;
+          const color = this.portColor(idx);
+          ctx.fillStyle = color;
+          ctx.fillRect(legendX, legendY, 10, 3);
+          ctx.fillStyle = '#8b949e';
+          ctx.fillText(pm.name, legendX + 14, legendY + 5);
+          legendX += ctx.measureText(pm.name).width + 24;
+        });
+      }
+    },
+
+    // --- Stats tab ---
+
+    get filteredDaily() {
+      if (!this.dailyData.length) return [];
+      const now = new Date();
+      let days = 7;
+      switch(this.statsPeriod) {
+        case '30d': days = 30; break;
+        case '3m': days = 90; break;
+        case '6m': days = 180; break;
+        case '12m': days = 365; break;
+        case 'All': days = 99999; break;
+      }
+      const cutoff = new Date(now - days * 86400000).toISOString().slice(0,10);
+      const filtered = this.dailyData.filter(d => d.date >= cutoff);
+
+      // Group by period
+      let groupBy = 'day';
+      if (this.statsPeriod === '30d') groupBy = 'week';
+      else if (['3m','6m','12m'].includes(this.statsPeriod)) groupBy = 'month';
+      else if (this.statsPeriod === 'All') groupBy = 'year';
+
+      if (groupBy === 'day') return filtered;
+
+      // Aggregate into groups
+      const groups = {};
+      for (const d of filtered) {
+        let key, label;
+        const dt = new Date(d.date + 'T00:00:00');
+        if (groupBy === 'week') {
+          // ISO week: find Monday of this week
+          const day = dt.getDay() || 7;
+          const mon = new Date(dt);
+          mon.setDate(dt.getDate() - day + 1);
+          key = mon.toISOString().slice(0,10);
+          label = 'W' + key.slice(5);
+        } else if (groupBy === 'month') {
+          key = d.date.slice(0,7);
+          label = d.date.slice(0,7);
+        } else {
+          key = d.date.slice(0,4);
+          label = d.date.slice(0,4);
+        }
+        if (!groups[key]) {
+          groups[key] = { date: label, rxBytes: 0, txBytes: 0, ports: {} };
+        }
+        groups[key].rxBytes += d.rxBytes;
+        groups[key].txBytes += d.txBytes;
+        if (d.ports) {
+          for (const [port, pb] of Object.entries(d.ports)) {
+            if (!groups[key].ports[port]) groups[key].ports[port] = { rxBytes: 0, txBytes: 0 };
+            groups[key].ports[port].rxBytes += (pb.rxBytes || 0);
+            groups[key].ports[port].txBytes += (pb.txBytes || 0);
+          }
+        }
+      }
+      return Object.values(groups);
+    },
+
+    get statsSummary() {
+      const data = this.filteredDaily;
+      if (!data.length) return { totalRx: 0, totalTx: 0, avgRx: 0, avgTx: 0, avgLabel: 'Daily Avg' };
+      let totalRx = 0, totalTx = 0;
+      for (const d of data) { totalRx += d.rxBytes; totalTx += d.txBytes; }
+      // Use actual day count for average, not group count
+      let dayCount = data.length;
+      const labels = { day: 'Daily Avg', week: 'Weekly Avg', month: 'Monthly Avg', year: 'Yearly Avg' };
+      let avgLabel = 'Daily Avg';
+      if (['30d'].includes(this.statsPeriod)) { avgLabel = 'Weekly Avg'; dayCount = data.length; }
+      else if (['3m','6m','12m'].includes(this.statsPeriod)) { avgLabel = 'Monthly Avg'; dayCount = data.length; }
+      else if (this.statsPeriod === 'All') { avgLabel = 'Yearly Avg'; dayCount = data.length; }
+      return {
+        totalRx, totalTx,
+        avgRx: Math.round(totalRx / dayCount),
+        avgTx: Math.round(totalTx / dayCount),
+        avgLabel
+      };
+    },
+
+    serviceTotal(port) {
+      const data = this.filteredDaily;
+      let rx = 0, tx = 0;
+      for (const d of data) {
+        if (d.ports && d.ports[port]) {
+          rx += d.ports[port].rxBytes || 0;
+          tx += d.ports[port].txBytes || 0;
+        }
+      }
+      const total = this.statsSummary.totalRx || 1;
+      const n = data.length || 1;
+      return {
+        rx, tx,
+        avgRx: Math.round(rx / n),
+        avgTx: Math.round(tx / n),
+        pct: Math.round((rx / total) * 100)
+      };
+    },
+
+    drawStatsChart() {
+      const canvas = this.$refs.statsCanvas;
+      if (!canvas) return;
+      const data = this.filteredDaily;
+      if (!data.length) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      const W = rect.width, H = rect.height;
+      const pad = { top: 10, right: 10, bottom: 25, left: 55 };
+      const gW = W - pad.left - pad.right;
+      const gH = H - pad.top - pad.bottom;
+
+      ctx.clearRect(0, 0, W, H);
+
+      // Find max
+      let maxVal = 0;
+      for (const d of data) {
+        if (d.rxBytes > maxVal) maxVal = d.rxBytes;
+        if (d.txBytes > maxVal) maxVal = d.txBytes;
+      }
+      if (maxVal === 0) maxVal = 1024*1024*1024;
+      maxVal *= 1.1;
+
+      // Grid
+      ctx.strokeStyle = '#21262d';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (gH / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        ctx.fillStyle = '#484f58';
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(this.formatBytes(maxVal * (1 - i/4)), pad.left - 6, y + 4);
+      }
+
+      // Bars
+      const n = data.length;
+      const barGroupW = gW / n;
+      const barW = Math.max(2, Math.min(20, (barGroupW - 6) / 2));
+      const gap = 2;
+
+      for (let i = 0; i < n; i++) {
+        const d = data[i];
+        const cx = pad.left + barGroupW * i + barGroupW / 2;
+        const dlH = (d.rxBytes / maxVal) * gH;
+        const ulH = (d.txBytes / maxVal) * gH;
+
+        // DL bar
+        const dlGrad = ctx.createLinearGradient(0, pad.top + gH - dlH, 0, pad.top + gH);
+        dlGrad.addColorStop(0, '#3fb950');
+        dlGrad.addColorStop(1, '#1a3a2a');
+        ctx.fillStyle = dlGrad;
+        ctx.beginPath();
+        ctx.roundRect(cx - barW - gap/2, pad.top + gH - dlH, barW, dlH, [3, 3, 0, 0]);
+        ctx.fill();
+
+        // UL bar
+        const ulGrad = ctx.createLinearGradient(0, pad.top + gH - ulH, 0, pad.top + gH);
+        ulGrad.addColorStop(0, '#58a6ff');
+        ulGrad.addColorStop(1, '#1c2541');
+        ctx.fillStyle = ulGrad;
+        ctx.beginPath();
+        ctx.roundRect(cx + gap/2, pad.top + gH - ulH, barW, ulH, [3, 3, 0, 0]);
+        ctx.fill();
+
+        // Label
+        ctx.fillStyle = '#484f58';
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        // Short date labels: 7d=dd, 30d=dd.mm, months=Jan/Feb/Mar, years=YYYY
+        let lbl = '';
+        if (d.date.startsWith('W')) lbl = d.date; // week labels
+        else if (d.date.length === 4) lbl = d.date; // year
+        else if (d.date.length === 7) { // month: 2026-03 -> Mar
+          const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          lbl = months[parseInt(d.date.slice(5)) - 1] || d.date.slice(5);
+        } else if (n <= 7) lbl = d.date.slice(8); // dd
+        else lbl = d.date.slice(8) + '.' + d.date.slice(5,7); // dd.mm
+        const labelEvery = n <= 7 ? 1 : n <= 12 ? 1 : Math.ceil(n / 10);
+        if (lbl && i % labelEvery === 0) {
+          ctx.fillText(lbl, cx, H - 4);
+        }
+      }
+
+      // Also draw service chart
+      this.drawServiceChart();
+    },
+
+    drawServiceChart() {
+      const canvas = this.$refs.serviceCanvas;
+      if (!canvas) return;
+      const data = this.filteredDaily;
+      const ports = (this.config.ports || []).filter(pm => this.statsServiceVisible[pm.port] !== false);
+      if (!data.length || !ports.length) {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, rect.width, rect.height);
+        ctx.fillStyle = '#484f58';
+        ctx.font = '13px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Select services to compare', rect.width/2, rect.height/2);
+        return;
+      }
+
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      const W = rect.width, H = rect.height;
+      const pad = { top: 10, right: 10, bottom: 25, left: 55 };
+      const gW = W - pad.left - pad.right;
+      const gH = H - pad.top - pad.bottom;
+
+      ctx.clearRect(0, 0, W, H);
+
+      // Find max across visible ports + total (consider both DL and UL)
+      let maxVal = 0;
+      for (const d of data) {
+        if (this.statsShowTotal) {
+          if (d.rxBytes > maxVal) maxVal = d.rxBytes;
+          if (d.txBytes > maxVal) maxVal = d.txBytes;
+        }
+        if (!d.ports) continue;
+        for (const pm of ports) {
+          const pb = d.ports[pm.port];
+          if (pb) {
+            if (pb.rxBytes > maxVal) maxVal = pb.rxBytes;
+            if (pb.txBytes > maxVal) maxVal = pb.txBytes;
+          }
+        }
+      }
+      if (maxVal === 0) maxVal = 1024*1024*1024;
+      maxVal *= 1.1;
+      const showTotal = this.statsShowTotal;
+
+      // Grid
+      ctx.strokeStyle = '#21262d';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.top + (gH / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(W - pad.right, y);
+        ctx.stroke();
+        ctx.fillStyle = '#484f58';
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(this.formatBytes(maxVal * (1 - i/4)), pad.left - 6, y + 4);
+      }
+
+      // Bars: 4 per day — Total DL, Stacked DL, Total UL, Stacked UL
+      const n = data.length;
+      const barGroupW = gW / n;
+      const numBars = showTotal ? 4 : 2; // with total: TotalDL, StackedDL, TotalUL, StackedUL; without: StackedDL, StackedUL
+      const barW = Math.max(3, Math.min(18, (barGroupW - 6) / numBars));
+      const barGap = 1;
+
+      for (let i = 0; i < n; i++) {
+        const d = data[i];
+        const groupW = numBars * barW + (numBars - 1) * barGap;
+        const groupStart = pad.left + barGroupW * i + (barGroupW - groupW) / 2;
+        let bx = groupStart;
+
+        // Total DL (green)
+        if (showTotal) {
+          const h = (d.rxBytes / maxVal) * gH;
+          const grad = ctx.createLinearGradient(0, pad.top + gH - h, 0, pad.top + gH);
+          grad.addColorStop(0, '#3fb950');
+          grad.addColorStop(1, '#1a3a2a');
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.roundRect(bx, pad.top + gH - h, barW, h, [3, 3, 0, 0]);
+          ctx.fill();
+          bx += barW + barGap;
+        }
+
+        // Stacked DL per service
+        {
+          let stackY = pad.top + gH;
+          ports.forEach((pm) => {
+            const portIdx = this.config.ports.findIndex(p => p.port === pm.port);
+            const color = this.portColor(portIdx);
+            const pb = d.ports && d.ports[pm.port];
+            const val = pb ? pb.rxBytes : 0;
+            const h = (val / maxVal) * gH;
+            if (h > 0) {
+              stackY -= h;
+              ctx.fillStyle = color;
+              ctx.beginPath();
+              ctx.roundRect(bx, stackY, barW, h, stackY === pad.top + gH - h ? [3, 3, 0, 0] : [0, 0, 0, 0]);
+              ctx.fill();
+            }
+          });
+          // Round top of stacked bar
+          if (stackY < pad.top + gH) {
+            ctx.beginPath();
+            ctx.roundRect(bx, stackY, barW, 3, [3, 3, 0, 0]);
+            ctx.fill();
+          }
+          bx += barW + barGap;
+        }
+
+        // Total UL (blue)
+        if (showTotal) {
+          const h = (d.txBytes / maxVal) * gH;
+          const grad = ctx.createLinearGradient(0, pad.top + gH - h, 0, pad.top + gH);
+          grad.addColorStop(0, '#58a6ff');
+          grad.addColorStop(1, '#1c2541');
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.roundRect(bx, pad.top + gH - h, barW, h, [3, 3, 0, 0]);
+          ctx.fill();
+          bx += barW + barGap;
+        }
+
+        // Stacked UL per service
+        {
+          let stackY = pad.top + gH;
+          ports.forEach((pm) => {
+            const portIdx = this.config.ports.findIndex(p => p.port === pm.port);
+            const color = this.portColor(portIdx);
+            const pb = d.ports && d.ports[pm.port];
+            const val = pb ? pb.txBytes : 0;
+            const h = (val / maxVal) * gH;
+            if (h > 0) {
+              stackY -= h;
+              ctx.fillStyle = color + 'aa';
+              ctx.beginPath();
+              ctx.roundRect(bx, stackY, barW, h, [0, 0, 0, 0]);
+              ctx.fill();
+            }
+          });
+          if (stackY < pad.top + gH) {
+            ctx.beginPath();
+            ctx.roundRect(bx, stackY, barW, 3, [3, 3, 0, 0]);
+            ctx.fill();
+          }
+        }
+
+        // Date label
+        ctx.fillStyle = '#484f58';
+        ctx.font = '10px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        const cx = pad.left + barGroupW * i + barGroupW / 2;
+        // Short date labels: 7d=dd, 30d=dd.mm, months=Jan/Feb/Mar, years=YYYY
+        let lbl = '';
+        if (d.date.startsWith('W')) lbl = d.date; // week labels
+        else if (d.date.length === 4) lbl = d.date; // year
+        else if (d.date.length === 7) { // month: 2026-03 -> Mar
+          const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          lbl = months[parseInt(d.date.slice(5)) - 1] || d.date.slice(5);
+        } else if (n <= 7) lbl = d.date.slice(8); // dd
+        else lbl = d.date.slice(8) + '.' + d.date.slice(5,7); // dd.mm
+        const labelEvery = n <= 7 ? 1 : n <= 12 ? 1 : Math.ceil(n / 10);
+        if (lbl && i % labelEvery === 0) {
+          ctx.fillText(lbl, cx, H - 4);
+        }
+      }
+
+      // Legend
+      ctx.font = '11px -apple-system, sans-serif';
+      ctx.textAlign = 'left';
+      let lx = pad.left + 4;
+      if (showTotal) {
+        ctx.fillStyle = 'rgba(201,209,217,0.3)';
+        ctx.fillRect(lx, pad.top + 2, 10, 3);
+        ctx.fillStyle = '#8b949e';
+        ctx.fillText('Total', lx + 14, pad.top + 7);
+        lx += 55;
+      }
+      ports.forEach((pm, pi) => {
+        const portIdx = this.config.ports.findIndex(p => p.port === pm.port);
+        const color = this.portColor(portIdx);
+        ctx.fillStyle = color;
+        ctx.fillRect(lx, pad.top + 2, 10, 3);
+        ctx.fillStyle = '#8b949e';
+        ctx.fillText(pm.name, lx + 14, pad.top + 7);
+        lx += ctx.measureText(pm.name).width + 24;
+      });
+    },
+
+    statsBarHover(e, chart) {
+      const data = this.filteredDaily;
+      const tip = chart === 'total' ? 'totalTooltip' : 'serviceTooltip';
+      if (!data.length) { this[tip].show = false; return; }
+
+      const canvas = chart === 'total' ? this.$refs.statsCanvas : this.$refs.serviceCanvas;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const pad = { left: 55, right: 10, top: 10, bottom: 25 };
+      const gW = rect.width - pad.left - pad.right;
+
+      if (mx < pad.left || mx > rect.width - pad.right || my < pad.top || my > rect.height - pad.bottom) {
+        this[tip].show = false; return;
+      }
+
+      const n = data.length;
+      const barGroupW = gW / n;
+      const idx = Math.floor((mx - pad.left) / barGroupW);
+      if (idx < 0 || idx >= n) { this[tip].show = false; return; }
+
+      const d = data[idx];
+      if (!d.rxBytes && !d.txBytes) { this[tip].show = false; return; }
+
+      // Only show when mouse is directly over a bar
+      // Calculate actual bar positions for this group
+      const showTotal = this.statsShowTotal;
+      const ports = (this.config.ports || []).filter(pm => this.statsServiceVisible[pm.port] !== false);
+      const numBars = chart === 'total' ? 2 : (showTotal ? 4 : 2);
+      const bW = Math.max(3, Math.min(18, (barGroupW - 6) / (chart === 'total' ? 2 : (showTotal ? 4 : 2))));
+      const totalBarsWidth = numBars * bW + (numBars - 1);
+      const groupCenter = pad.left + barGroupW * idx + barGroupW / 2;
+      const barsLeft = groupCenter - totalBarsWidth / 2;
+      const barsRight = groupCenter + totalBarsWidth / 2;
+      if (mx < barsLeft - 4 || mx > barsRight + 4) { this[tip].show = false; return; }
+
+      if (chart === 'total') {
+        this.totalTooltip = {
+          show: true,
+          x: Math.min(mx + 12, rect.width - 150),
+          y: Math.max(my - 50, 0),
+          date: d.date,
+          dl: this.formatBytes(d.rxBytes),
+          ul: this.formatBytes(d.txBytes)
+        };
+      } else {
+        const ports = (this.config.ports || []).filter(pm => this.statsServiceVisible[pm.port] !== false);
+        const rows = ports.map((pm) => {
+          const portIdx = this.config.ports.findIndex(p => p.port === pm.port);
+          const pb = d.ports && d.ports[pm.port];
+          const rx = pb ? pb.rxBytes : 0;
+          const tx = pb ? pb.txBytes : 0;
+          return {
+            name: pm.name,
+            color: this.portColor(portIdx),
+            dl: this.formatBytes(rx),
+            ul: this.formatBytes(tx),
+            pct: d.rxBytes > 0 ? Math.round((rx / d.rxBytes) * 100) : 0
+          };
+        });
+        this.serviceTooltip = {
+          show: true,
+          x: Math.min(mx + 12, rect.width - 250),
+          y: Math.max(my - 40 - (rows.length + 1) * 16, 0),
+          date: d.date,
+          totalDl: this.formatBytes(d.rxBytes),
+          totalUl: this.formatBytes(d.txBytes),
+          rows
+        };
+      }
+    },
+
+    async resetStats() {
+      try {
+        const res = await fetch('/api/stats/reset', { method: 'POST' });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        this.dailyData = [];
+        this.showToast('Statistics reset', 'toast-success');
+        if (this.tab === 'stats') {
+          this.$nextTick(() => { this.drawStatsChart(); this.drawServiceChart(); });
+        }
+      } catch (e) {
+        this.showToast('Reset failed: ' + e.message, 'toast-error');
+      }
     },
 
     showToast(msg, type) {

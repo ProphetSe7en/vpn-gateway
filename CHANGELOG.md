@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.2.0
+
+**Base image:** `ghcr.io/hotio/base:alpinevpn@sha256:a3f171bc00b03218907c6bd6530e4231446def5ed2e8ebed53927ab2693919c7` (2026-02-23)
+
+### Features
+- **Traffic tab** — Live throughput graphs (1h/6h/24h/72h) with smooth bezier curves, DL/UL toggle, rate limit line, per-instance overlay lines
+- **Stats tab** — Daily/weekly/monthly volume bar charts with stacked per-service breakdown, period selector (7d/30d/3m/6m/12m/All), auto-grouping, tooltips with percentages
+- **qBit API integration** — Per-service traffic stats via qBittorrent WebUI API (replaces nft port counters)
+- **Persistent statistics** — Ring buffer (72h) + daily volumes (365 days) + cumulative totals saved to disk, survive restarts
+- **Always-visible status header** — Live speed, peak/avg 24h, volume 24h, active rule indicator
+- **Per-service bar charts** — Stacked bars with total reference, custom colors via color picker, toggle visibility
+- **Reset stats** — Clear all historical data for fresh start after adding port monitoring
+- **Container hostname** — UI title and labels use container name automatically
+- Collapsible config sections (Settings closed by default, Schedule open)
+- Period totals table with per-service avg and percentage breakdown
+
 ## v1.1.0
 
 **Base image:** `ghcr.io/hotio/base:alpinevpn@sha256:a3f171bc00b03218907c6bd6530e4231446def5ed2e8ebed53927ab2693919c7` (2026-02-23)
