@@ -257,10 +257,18 @@ find_latest_schedule() {
     local best_n=""
     local best_time=-1
     local n=1
+    local consecutive_empty=0
     while [[ $n -le 50 ]]; do
         local time_var="SCHEDULE_${n}_TIME"
         local time_val="${!time_var}"
-        [[ -z "$time_val" ]] && break
+        if [[ -z "$time_val" ]]; then
+            ((consecutive_empty++))
+            # Stop after 3 consecutive empty slots (allows gaps)
+            [[ $consecutive_empty -ge 3 ]] && break
+            n=$((n + 1))
+            continue
+        fi
+        consecutive_empty=0
 
         local days_var="SCHEDULE_${n}_DAYS"
         local days_val="${!days_var}"
@@ -349,18 +357,19 @@ generate_crontab() {
 
     local entries=""
     local n=1
-    local max_rules=50
-    while [[ $n -le $max_rules ]]; do
+    local count=0
+    local consecutive_empty=0
+    while [[ $n -le 50 ]]; do
         local time_var="SCHEDULE_${n}_TIME"
         local time_val="${!time_var}"
         if [[ -z "$time_val" ]]; then
-            # Warn about gaps (e.g., SCHEDULE_1 + SCHEDULE_3 but no SCHEDULE_2)
-            local next_time_var="SCHEDULE_$(( n + 1 ))_TIME"
-            if [[ -n "${!next_time_var:-}" ]]; then
-                log_err "Schedule gap: SCHEDULE_${n}_TIME is missing but SCHEDULE_$(( n + 1 )) exists — rules after the gap are ignored"
-            fi
-            break
+            ((consecutive_empty++))
+            # Stop after 3 consecutive empty slots (allows gaps)
+            [[ $consecutive_empty -ge 3 ]] && break
+            n=$((n + 1))
+            continue
         fi
+        consecutive_empty=0
 
         local down_var="SCHEDULE_${n}_DOWN"
         local up_var="SCHEDULE_${n}_UP"
@@ -378,23 +387,19 @@ generate_crontab() {
         hour=$((10#$hour))
         minute=$((10#$minute))
 
-        entries+="${minute} ${hour} * * ${cron_days} /usr/local/bin/nft-apply ${n} 2>&1"$'\n'
+        entries+="${minute} ${hour} * * ${cron_days} /usr/local/bin/nft-apply ${n} > /proc/1/fd/1 2>&1"$'\n'
         log_inf "Schedule rule ${n}: ${time_val} ↓${down_val}/↑${up_val} MB/s${days_val:+ ($days_val)}"
+        ((count++))
         n=$((n + 1))
     done
 
     # Always add verify watchdog — checks every minute if rules were wiped by hotio rebuild
-    entries+="* * * * * /usr/local/bin/nft-apply verify 2>&1"$'\n'
+    entries+="* * * * * /usr/local/bin/nft-apply verify > /proc/1/fd/1 2>&1"$'\n'
     log_inf "Verify watchdog: checking rule presence every 60s"
-
-    if [[ -z "$entries" ]]; then
-        log_inf "No schedule rules found"
-        return 1
-    fi
 
     echo -n "$entries" > "$crontab_dir/root"
     chmod 600 "$crontab_dir/root"
-    log_inf "Generated $(( n - 1 )) schedule entries + verify watchdog"
+    log_inf "Generated ${count} schedule entries + verify watchdog"
 }
 
 # --- Main ---

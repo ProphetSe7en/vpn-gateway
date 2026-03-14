@@ -56,7 +56,7 @@ DEFAULT_UP=0
 #   SCHEDULE_<N>_DAYS   = day filter (optional, default: every day)
 #                         Examples: "mon-fri", "sat,sun", "mon,wed,fri", "tue"
 #
-# You can have up to 50 rules. They are numbered sequentially (no gaps).
+# You can have up to 50 rules. Gaps in numbering are allowed (e.g., 1, 3, 5).
 
 SCHEDULE_ENABLED=false
 
