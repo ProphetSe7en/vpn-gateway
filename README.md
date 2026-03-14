@@ -6,6 +6,7 @@ Built as a layer on top of [hotio/base:alpinevpn](https://hotio.dev/containers/b
 
 ## Features
 
+- **Web UI** — configure rules, rates, and schedule from a browser (port 8090)
 - **Simple config** — set rates in MB/s, no conversion needed
 - **Hot-reload** — edit `traffic.conf` and changes apply within 10 seconds, no restart required
 - **Time-based scheduling** — different rates for different times of day and days of the week
@@ -49,15 +50,35 @@ docker run -d \
   -v /path/to/config:/config \
   -e VPN_ENABLED=true \
   -e VPN_CONF=wg0 \
+  -p 8090:8090 \
+  -e VPN_EXPOSE_PORTS_ON_LAN=8090/tcp \
   -e PRIVNET=192.168.86.0/24 \
   ghcr.io/prophetse7en/vpn-gateway:latest
 ```
 
 On first start, a default `traffic.conf` is created in `/config/` with all options documented.
 
+## Web UI
+
+The web UI is available on port **8090**. To enable it:
+
+1. Map port 8090 in your container config (`-p 8090:8090`)
+2. Add `8090/tcp` to `VPN_EXPOSE_PORTS_ON_LAN` so hotio's firewall allows LAN access
+3. Open `http://<server-ip>:8090` in your browser
+
+The UI provides:
+- Current status (active rates, limited/unlimited badge)
+- Default rate and burst buffer settings
+- Schedule rule editor with day filters
+- Effective schedule summary showing what rates apply when
+
+Changes saved via the UI are written to both `/config/.traffic-ui.json` (UI model) and `/config/traffic.conf` (bash config). The config watcher picks up changes within 10 seconds.
+
+You can also edit `traffic.conf` manually — the UI reads whichever file is newer.
+
 ## Configuration
 
-Edit `/config/traffic.conf`. Changes are detected automatically within 10 seconds.
+Edit `/config/traffic.conf` or use the web UI. Changes are detected automatically within 10 seconds.
 
 ### Default rates
 
@@ -151,6 +172,12 @@ traffic.conf ──→ svc-traffic (s6 service)
                    ├── nft-apply (insert/replace/delete nft rules)
                    ├── crond (schedule triggers + verify watchdog every 60s)
                    └── config watcher (md5sum poll every 10s → hot-reload)
+
+svc-webui (s6 service, port 8090)
+  ├── GET /api/status    — current rates + nft counters
+  ├── GET /api/config    — full config (JSON or parsed bash)
+  ├── PUT /api/config    — save config (writes both JSON + bash)
+  └── static files       — Alpine.js SPA (embedded at build time)
 
 nft rules are inserted into hotio's existing inet hotio table:
   output chain: upload limit before hotio's wg0 accept rule
