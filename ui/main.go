@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -19,6 +20,7 @@ var staticFiles embed.FS
 
 type App struct {
 	configPath string
+	traffic    *TrafficCollector
 }
 
 func main() {
@@ -32,14 +34,31 @@ func main() {
 		configPath = "/config/traffic.conf"
 	}
 
-	app := &App{configPath: configPath}
+	iface := os.Getenv("INTERFACE")
+	if iface == "" {
+		iface = "wg0"
+	}
+
+	// Start traffic collector
+	traffic := NewTrafficCollector(iface, configPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	go traffic.Run(ctx)
+
+	app := &App{configPath: configPath, traffic: traffic}
 
 	mux := http.NewServeMux()
 
-	// API routes
+	// Config API routes
 	mux.HandleFunc("GET /api/status", app.handleStatus)
 	mux.HandleFunc("GET /api/config", app.handleGetConfig)
 	mux.HandleFunc("PUT /api/config", app.handlePutConfig)
+
+	// Stats API routes
+	mux.HandleFunc("GET /api/stats/stream", app.handleStatsSSE)
+	mux.HandleFunc("GET /api/stats/history", app.handleStatsHistory)
+	mux.HandleFunc("GET /api/stats/latest", app.handleStatsLatest)
+	mux.HandleFunc("GET /api/stats/daily", app.handleStatsDailyVolume)
+	mux.HandleFunc("POST /api/stats/reset", app.handleStatsReset)
 
 	// Static files
 	staticFS, _ := fs.Sub(staticFiles, "static")
@@ -49,7 +68,7 @@ func main() {
 		Addr:         ":" + port,
 		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 0, // SSE needs unlimited write timeout
 		IdleTimeout:  120 * time.Second,
 	}
 
@@ -66,9 +85,10 @@ func main() {
 
 	<-done
 	log.Println("Shutting down...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	server.Shutdown(ctx)
+	cancel() // Stop traffic collector (triggers save)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+	server.Shutdown(shutdownCtx)
 }
 
 // --- API Handlers ---
@@ -94,6 +114,18 @@ func (app *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// Get nft status by reading counters
 	upRule, downRule := getNftCounters()
 
+	// Resolve which rule is currently active
+	activeRule := resolveActiveRule(cfg)
+
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "vpn-gateway"
+	}
+	// Strip .internal suffix if present
+	if idx := strings.Index(hostname, "."); idx > 0 {
+		hostname = hostname[:idx]
+	}
+
 	status := map[string]any{
 		"enabled":         cfg.Enabled,
 		"scheduleEnabled": cfg.ScheduleEnabled,
@@ -103,6 +135,8 @@ func (app *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"rules":           cfg.Rules,
 		"activeUp":        upRule,
 		"activeDown":      downRule,
+		"activeRule":      activeRule,
+		"hostname":        hostname,
 	}
 
 	writeJSON(w, status)
