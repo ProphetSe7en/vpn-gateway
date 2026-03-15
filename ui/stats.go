@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -104,11 +105,16 @@ type portCounter struct {
 	name    string
 	totalRx uint64 // cumulative across restarts (from persisted + API session data)
 	totalTx uint64
-	rxRate  float64 // live speed from API
-	txRate  float64
 	// Track session offsets for cumulative calculation
 	baseRx uint64 // persisted total at start of this session
 	baseTx uint64
+	// Track previous session values for accurate daily volume deltas
+	prevSessionRx uint64
+	prevSessionTx uint64
+	hasSession     bool   // true after first successful poll
+	resetPending   bool   // true after stats reset — next poll sets base offset
+	resetOffsetRx  uint64 // session value at time of reset (subtracted from future session values)
+	resetOffsetTx  uint64
 }
 
 // TrafficCollector samples wg0 interface stats and maintains history
@@ -129,6 +135,13 @@ type TrafficCollector struct {
 	baseTx    uint64
 	dailyVols []DailyVolume // last 30 days
 	today     string        // current day YYYY-MM-DD
+
+	// nft drop counters — wg0 rx_bytes includes packets that nft subsequently drops.
+	// We track dropped bytes to compute actual throughput: wg0 - dropped = real traffic.
+	prevDropRx    uint64
+	prevDropTx    uint64
+	ruleChangeAt  time.Time // when nft rule changed (drop counter reset detected)
+	dropInitDone  bool      // true after first drop counter read
 
 	// Per-port counters
 	portCounters []portCounter
@@ -198,6 +211,8 @@ func (tc *TrafficCollector) Run(ctx context.Context) {
 
 func (tc *TrafficCollector) sample() {
 	rx, tx, err := readInterfaceBytes(tc.iface)
+	// Read nft drop counters (outside lock — exec.Command may take a few ms)
+	dropRx, dropTx := readNftDropBytes()
 	now := time.Now()
 	elapsed := now.Sub(tc.prevTime).Seconds()
 
@@ -209,21 +224,46 @@ func (tc *TrafficCollector) sample() {
 		return
 	}
 
-	// Handle counter reset (VPN reconnect)
+	// Detect nft rule change: drop counter resets when nft-apply replaces a rule.
+	// Skip samples during 10s grace period to avoid burst spikes in stats.
+	if tc.dropInitDone && (dropRx < tc.prevDropRx || dropTx < tc.prevDropTx) {
+		tc.ruleChangeAt = now
+		log.Printf("Rule change detected — grace period for 10s")
+	}
+	tc.dropInitDone = true
+	inGracePeriod := !tc.ruleChangeAt.IsZero() && now.Sub(tc.ruleChangeAt) < 10*time.Second
+
+	// Compute wg0 deltas, then subtract nft dropped bytes for accurate throughput.
+	// wg0 rx_bytes counts ALL packets including those nft subsequently drops.
 	var rxRate, txRate float64
 	var rxDelta, txDelta uint64
 	if rx >= tc.prevRx {
 		rxDelta = rx - tc.prevRx
+		// Subtract dropped bytes delta (only when counters are increasing normally)
+		if dropRx >= tc.prevDropRx {
+			dropRxDelta := dropRx - tc.prevDropRx
+			if rxDelta > dropRxDelta {
+				rxDelta -= dropRxDelta
+			}
+		}
 		rxRate = float64(rxDelta) / elapsed
 		tc.totalRx += rxDelta
 	}
 	if tx >= tc.prevTx {
 		txDelta = tx - tc.prevTx
+		if dropTx >= tc.prevDropTx {
+			dropTxDelta := dropTx - tc.prevDropTx
+			if txDelta > dropTxDelta {
+				txDelta -= dropTxDelta
+			}
+		}
 		txRate = float64(txDelta) / elapsed
 		tc.totalTx += txDelta
 	}
+	tc.prevDropRx = dropRx
+	tc.prevDropTx = dropTx
 
-	// Accumulate daily volume
+	// Accumulate daily volume (even during grace period — volume is real)
 	today := now.Format("2006-01-02")
 	if tc.today != today {
 		tc.today = today
@@ -243,6 +283,38 @@ func (tc *TrafficCollector) sample() {
 	tc.prevTx = tx
 	tc.prevTime = now
 
+	// Always update live speed (real-time display in header)
+	tc.latest.RxRate = rxRate
+	tc.latest.TxRate = txRate
+	tc.latest.RxBytes = rx
+	tc.latest.TxBytes = tx
+	tc.latest.TotalRx = tc.totalRx
+	tc.latest.TotalTx = tc.totalTx
+
+	// During grace period after rule change: skip ring buffer + peak/avg/graph
+	// to prevent burst spikes. Live speed + volume still update above.
+	if inGracePeriod {
+		tc.mu.Unlock()
+		// Still poll ports for live per-service speed display
+		portStats, portDeltas := tc.pollPortStats()
+		tc.mu.Lock()
+		tc.latest.Ports = portStats
+		if len(portDeltas) > 0 && len(tc.dailyVols) > 0 {
+			d := &tc.dailyVols[len(tc.dailyVols)-1]
+			if d.Ports == nil {
+				d.Ports = make(map[int]PortBytes)
+			}
+			for port, delta := range portDeltas {
+				pb := d.Ports[port]
+				pb.RxBytes += delta.RxBytes
+				pb.TxBytes += delta.TxBytes
+				d.Ports[port] = pb
+			}
+		}
+		tc.mu.Unlock()
+		return
+	}
+
 	// Store in ring buffer (port data added after pollPortStats below)
 	pt := TrafficPoint{
 		Time:   now.Unix(),
@@ -256,15 +328,8 @@ func (tc *TrafficCollector) sample() {
 		tc.count++
 	}
 
-	// Update latest stats
-	tc.latest.RxRate = rxRate
-	tc.latest.TxRate = txRate
-	tc.latest.RxBytes = rx
-	tc.latest.TxBytes = tx
-	tc.latest.TotalRx = tc.totalRx
-	tc.latest.TotalTx = tc.totalTx
-
-	// Compute 24h peak and average
+	// Compute 24h peak, average, and volume from ring buffer.
+	// Rates are already corrected for nft drops (wg0 - dropped = actual throughput).
 	daysamples := 28800 // 24h / 3s
 	if daysamples > tc.count {
 		daysamples = tc.count
@@ -273,14 +338,16 @@ func (tc *TrafficCollector) sample() {
 	for i := 0; i < daysamples; i++ {
 		idx := (tc.head - 1 - i + ringSize) % ringSize
 		p := tc.history[idx]
-		if p.RxRate > maxRx {
-			maxRx = p.RxRate
+		pRx := p.RxRate
+		pTx := p.TxRate
+		if pRx > maxRx {
+			maxRx = pRx
 		}
-		if p.TxRate > maxTx {
-			maxTx = p.TxRate
+		if pTx > maxTx {
+			maxTx = pTx
 		}
-		sumRx += p.RxRate
-		sumTx += p.TxRate
+		sumRx += pRx
+		sumTx += pTx
 	}
 	tc.latest.MaxRx24h = maxRx
 	tc.latest.MaxTx24h = maxTx
@@ -288,27 +355,26 @@ func (tc *TrafficCollector) sample() {
 		tc.latest.AvgRx24h = sumRx / float64(daysamples)
 		tc.latest.AvgTx24h = sumTx / float64(daysamples)
 	}
-	// 24h volume = sum of rates * sample interval
 	tc.latest.Vol24hRx = uint64(sumRx * sampleInterval.Seconds())
 	tc.latest.Vol24hTx = uint64(sumTx * sampleInterval.Seconds())
 	tc.mu.Unlock()
 
-	// Poll qBit API for per-service stats
-	portStats := tc.pollPortStats()
+	// Poll qBit API for per-service stats (returns actual byte deltas)
+	portStats, portDeltas := tc.pollPortStats()
 
 	tc.mu.Lock()
 	tc.latest.Ports = portStats
-	// Accumulate per-port daily volume from rates
-	if len(portStats) > 0 && len(tc.dailyVols) > 0 {
+	// Accumulate per-port daily volume from actual byte deltas (not rate × interval)
+	if len(portDeltas) > 0 && len(tc.dailyVols) > 0 {
 		d := &tc.dailyVols[len(tc.dailyVols)-1]
 		if d.Ports == nil {
 			d.Ports = make(map[int]PortBytes)
 		}
-		for _, ps := range portStats {
-			pb := d.Ports[ps.Port]
-			pb.RxBytes += uint64(ps.RxRate * sampleInterval.Seconds())
-			pb.TxBytes += uint64(ps.TxRate * sampleInterval.Seconds())
-			d.Ports[ps.Port] = pb
+		for port, delta := range portDeltas {
+			pb := d.Ports[port]
+			pb.RxBytes += delta.RxBytes
+			pb.TxBytes += delta.TxBytes
+			d.Ports[port] = pb
 		}
 	}
 	// Add per-port rates to the current history point
@@ -535,6 +601,33 @@ func (tc *TrafficCollector) loadFromDisk() {
 
 var validIface = regexp.MustCompile(`^[a-zA-Z0-9\-]+$`)
 
+// readNftDropBytes reads the cumulative bytes dropped by nft traffic shaper rules.
+// wg0 rx_bytes counts ALL arriving packets including those nft subsequently drops.
+// Subtracting dropped bytes gives actual throughput.
+func readNftDropBytes() (rxDrop, txDrop uint64) {
+	out, err := exec.Command("nft", "list", "chain", "inet", "hotio", "input").Output()
+	if err == nil {
+		rxDrop = parseNftCounterBytes(string(out), "traffic-limit-down")
+	}
+	out, err = exec.Command("nft", "list", "chain", "inet", "hotio", "output").Output()
+	if err == nil {
+		txDrop = parseNftCounterBytes(string(out), "traffic-limit-up")
+	}
+	return
+}
+
+var nftBytesRe = regexp.MustCompile(`bytes\s+(\d+)\s+drop\s+comment\s+"([^"]+)"`)
+
+func parseNftCounterBytes(nftOutput, comment string) uint64 {
+	for _, match := range nftBytesRe.FindAllStringSubmatch(nftOutput, -1) {
+		if match[2] == comment {
+			val, _ := strconv.ParseUint(match[1], 10, 64)
+			return val
+		}
+	}
+	return 0
+}
+
 // qBitTransferInfo is the response from qBit API /api/v2/transfer/info
 type qBitTransferInfo struct {
 	DlInfoSpeed int64 `json:"dl_info_speed"`
@@ -598,15 +691,16 @@ func (tc *TrafficCollector) syncPortCounters() {
 }
 
 // pollPortStats queries qBit API on each configured port for live speed + session totals.
+// Returns stats for the API response AND actual byte deltas for accurate daily volume tracking.
 // HTTP calls are done WITHOUT holding the mutex to avoid blocking other operations.
-func (tc *TrafficCollector) pollPortStats() []PortStats {
+func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 	tc.mu.RLock()
 	counters := make([]portCounter, len(tc.portCounters))
 	copy(counters, tc.portCounters)
 	tc.mu.RUnlock()
 
 	if len(counters) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Collect API responses without lock
@@ -636,10 +730,11 @@ func (tc *TrafficCollector) pollPortStats() []PortStats {
 
 	// Guard against config change between copy and lock
 	if len(tc.portCounters) != len(counters) {
-		return nil
+		return nil, nil
 	}
 
 	var stats []PortStats
+	deltas := make(map[int]PortBytes)
 	for i := range counters {
 		pc := &tc.portCounters[i]
 
@@ -660,17 +755,60 @@ func (tc *TrafficCollector) pollPortStats() []PortStats {
 		sessionRx := uint64(info.DlInfoData)
 		sessionTx := uint64(info.UpInfoData)
 
-		// Detect qBit restart: session data dropped below what we've seen
-		prevSessionRx := uint64(0)
-		if pc.totalRx > pc.baseRx {
-			prevSessionRx = pc.totalRx - pc.baseRx
-		}
-		prevSessionTx := uint64(0)
-		if pc.totalTx > pc.baseTx {
-			prevSessionTx = pc.totalTx - pc.baseTx
+		// Handle stats reset: snapshot current session as zero point
+		if pc.resetPending {
+			pc.resetOffsetRx = sessionRx
+			pc.resetOffsetTx = sessionTx
+			pc.resetPending = false
 		}
 
-		if sessionRx < prevSessionRx || sessionTx < prevSessionTx {
+		// Apply reset offset: subtract session values at time of reset
+		// so totalRx counts from 0 after reset
+		if pc.resetOffsetRx > 0 || pc.resetOffsetTx > 0 {
+			if sessionRx >= pc.resetOffsetRx {
+				sessionRx -= pc.resetOffsetRx
+			} else {
+				// qBit restarted since reset — offset no longer valid
+				pc.resetOffsetRx = 0
+			}
+			if sessionTx >= pc.resetOffsetTx {
+				sessionTx -= pc.resetOffsetTx
+			} else {
+				pc.resetOffsetTx = 0
+			}
+		}
+
+		// Compute actual byte deltas for accurate daily volume tracking
+		var rxDelta, txDelta uint64
+		if pc.hasSession {
+			if sessionRx >= pc.prevSessionRx {
+				rxDelta = sessionRx - pc.prevSessionRx
+			} else {
+				// qBit restarted — count everything in new session
+				rxDelta = sessionRx
+			}
+			if sessionTx >= pc.prevSessionTx {
+				txDelta = sessionTx - pc.prevSessionTx
+			} else {
+				txDelta = sessionTx
+			}
+		}
+		pc.prevSessionRx = sessionRx
+		pc.prevSessionTx = sessionTx
+		pc.hasSession = true
+		deltas[pc.port] = PortBytes{RxBytes: rxDelta, TxBytes: txDelta}
+
+		// Detect qBit restart: session data dropped below what we've seen
+		prevCumulativeSessionRx := uint64(0)
+		if pc.totalRx > pc.baseRx {
+			prevCumulativeSessionRx = pc.totalRx - pc.baseRx
+		}
+		prevCumulativeSessionTx := uint64(0)
+		if pc.totalTx > pc.baseTx {
+			prevCumulativeSessionTx = pc.totalTx - pc.baseTx
+		}
+
+		if sessionRx < prevCumulativeSessionRx || sessionTx < prevCumulativeSessionTx {
 			// qBit restarted — accumulate previous total as new base
 			pc.baseRx = pc.totalRx
 			pc.baseTx = pc.totalTx
@@ -682,8 +820,6 @@ func (tc *TrafficCollector) pollPortStats() []PortStats {
 
 		pc.totalRx = pc.baseRx + sessionRx
 		pc.totalTx = pc.baseTx + sessionTx
-		pc.rxRate = float64(info.DlInfoSpeed)
-		pc.txRate = float64(info.UpInfoSpeed)
 
 		stats = append(stats, PortStats{
 			Port:    pc.port,
@@ -695,7 +831,7 @@ func (tc *TrafficCollector) pollPortStats() []PortStats {
 		})
 	}
 
-	return stats
+	return stats, deltas
 }
 
 func readInterfaceBytes(iface string) (rx, tx uint64, err error) {
@@ -787,10 +923,16 @@ func (tc *TrafficCollector) Reset() {
 	tc.today = ""
 	tc.latest = TrafficStats{}
 	for i := range tc.portCounters {
+		// Set baseRx/Tx so that next poll produces totalRx/Tx = 0
+		// (baseRx will be negative of current session value, so base + session = 0)
 		tc.portCounters[i].totalRx = 0
 		tc.portCounters[i].totalTx = 0
 		tc.portCounters[i].baseRx = 0
 		tc.portCounters[i].baseTx = 0
+		tc.portCounters[i].prevSessionRx = 0
+		tc.portCounters[i].prevSessionTx = 0
+		tc.portCounters[i].hasSession = false
+		tc.portCounters[i].resetPending = true
 	}
 	tc.mu.Unlock()
 	tc.saveToDisk()

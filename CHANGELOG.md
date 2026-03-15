@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.2.1
+
+### Features
+- **Accurate traffic stats** — VPN throughput corrected by subtracting nft-dropped packets. Previously, wg0 counters included packets that the rate limiter subsequently dropped, inflating speeds by ~25%. Now shows actual throughput matching the configured rate limit (within ~3%)
+- **Stats tab redesign** — Bar charts replaced with stacked area charts (separate Download/Upload). Smooth bezier curves, gradient fills, live updates every 3 seconds for short periods
+- **Short period stats** — New 1h/6h/24h period options on Stats tab with 1-min/5-min/15-min buckets for granular volume tracking
+- **VPN total toggle** — Stats volume charts show VPN total as background area alongside per-service stacked overlay. Total is always available, even without service ports configured
+- **Summary table** — Period Summary replaces the old period totals grid. Shows per-service DL/UL/Total/Share%/Avg with VPN total row and overhead explanation
+- **Rule change grace period** — 10-second cooldown after nft rule changes suppresses burst spikes in peak/avg/graph while keeping live speed display real-time
+- **Per-service daily volumes** — Fixed inaccurate volume tracking that used `rate × interval` approximation. Now uses actual byte deltas from service API session counters
+- **Traffic tooltip** — Redesigned with column layout (Total + per-service rows with DL/UL). Rate limit shown in tooltip instead of static graph line (which was misleading with changing limits)
+
+### Changes
+- Default UI port changed from 8090 to **6050** (configurable via `UI_PORT` env var)
+- Stats tab service toggles now include VPN total button
+- Data point dots hidden on short-period charts (shown only with ≤14 points)
+- Improved text readability (schedule notes, header description)
+- Per-service Total DL/UL correctly resets when using Reset Statistics
+
+### Bug fixes
+- **Peak exceeded configured limit** — wg0 `rx_bytes` counted packets dropped by nft shaper, inflating all rate calculations. Fixed by reading nft drop counters and subtracting from wg0 deltas
+- **Reset didn't clear per-service totals** — Service cumulative bytes jumped back to qBit session total after reset. Fixed with session offset tracking
+- **Reset didn't clear graph data** — Traffic graph and stats history retained pre-reset data. Now properly cleared on reset
+- **Share% mixed data sources** — When port data was partially available, percentage denominator mixed wg0 and service data. Now uses consistent service-only denominator
+
 ## v1.2.0
 
 **Base image:** `ghcr.io/hotio/base:alpinevpn@sha256:a3f171bc00b03218907c6bd6530e4231446def5ed2e8ebed53927ab2693919c7` (2026-02-23)

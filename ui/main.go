@@ -26,7 +26,7 @@ type App struct {
 func main() {
 	port := os.Getenv("UI_PORT")
 	if port == "" {
-		port = "8090"
+		port = "6050"
 	}
 
 	configPath := os.Getenv("CONFIG_PATH")
