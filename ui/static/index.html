@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>vpn-gateway</title>
+<link rel="icon" type="image/png" href="/icon.png">
 <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
 <style>
   [x-cloak] { display: none !important; }
@@ -397,7 +398,8 @@
 <div class="container" x-data="app()" x-init="init()" x-cloak>
 
   <!-- Header -->
-  <div class="header">
+  <div class="header" style="display:flex;align-items:center;gap:12px">
+    <img src="/icon.png" alt="" style="width:40px;height:40px;border-radius:8px">
     <h1 x-text="gwName"></h1>
   </div>
 
