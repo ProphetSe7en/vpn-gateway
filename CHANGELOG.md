@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.2.2
+
+### Features
+- **App icon** — Favicon in browser tab, icon in UI header next to container name
+- Icon files (`icon1.png`, `icon2.png`) available in repo root for Unraid template
+
 ## v1.2.1
 
 ### Features
