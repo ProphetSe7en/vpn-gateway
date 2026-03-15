@@ -266,8 +266,8 @@
     min-width: 120px;
   }
   .summary-rate { font-weight: 500; }
-  .summary-note { color: #484f58; font-size: 12px; }
-  .arrow { color: #484f58; margin: 0 2px; }
+  .summary-note { color: #8b949e; font-size: 12px; }
+  .arrow { color: #6e7681; margin: 0 2px; }
   .clr-limited { color: #d29922; }
   .clr-unlimited { color: #3fb950; }
 
@@ -442,6 +442,9 @@
         <div class="speed-label">Volume (24h)</div>
         <div class="speed-value speed-ul" x-text="formatBytes(liveStats.vol24hTx)"></div>
       </div>
+    </div>
+    <div style="font-size:10px;color:#8b949e;margin-top:6px;text-align:center">
+      Total VPN throughput (payload + protocol overhead). Service speeds may show ~5-10% less.
     </div>
   </div>
 
@@ -699,13 +702,19 @@
         <div class="graph-tooltip" x-show="graphTooltip.show" x-cloak
           :style="'left:'+graphTooltip.x+'px;top:'+graphTooltip.y+'px'">
           <div class="tt-time" x-text="graphTooltip.time"></div>
-          <div class="tt-dl" x-text="'↓ ' + graphTooltip.dl"></div>
-          <div class="tt-ul" x-text="'↑ ' + graphTooltip.ul"></div>
-          <template x-for="pp in graphTooltip.ports" :key="pp.name">
-            <div style="font-size:11px" :style="'color:'+pp.color">
-              <span x-text="pp.name + ': ↓' + pp.dl + ' ↑' + pp.ul"></span>
-            </div>
-          </template>
+          <div style="display:grid;grid-template-columns:auto auto auto;gap:1px 10px;font-size:11px;margin-top:4px">
+            <div style="color:#c9d1d9;font-weight:600">Total</div>
+            <div class="speed-dl" style="text-align:right" x-text="'↓' + graphTooltip.dl"></div>
+            <div class="speed-ul" style="text-align:right" x-text="'↑' + graphTooltip.ul"></div>
+            <template x-for="pp in graphTooltip.ports" :key="pp.name">
+              <div style="display:contents">
+                <div :style="'color:'+pp.color" x-text="pp.name"></div>
+                <div class="speed-dl" style="text-align:right" x-text="'↓' + pp.dl"></div>
+                <div class="speed-ul" style="text-align:right" x-text="'↑' + pp.ul"></div>
+              </div>
+            </template>
+          </div>
+          <div x-show="graphTooltip.limit" style="font-size:10px;color:#d2a822;border-top:1px solid #30363d;margin-top:4px;padding-top:3px" x-text="graphTooltip.limit"></div>
         </div>
       </div>
     </div>
@@ -744,18 +753,34 @@
   <!-- ==================== STATS TAB ==================== -->
   <div x-show="tab==='stats'">
 
-    <!-- Total Volume -->
     <div class="card">
       <div class="card-title" x-text="gwName + ' Volume'"></div>
 
-      <div class="period-btns" style="margin-bottom:16px">
-        <template x-for="p in ['7d','30d','3m','6m','12m','All']" :key="p">
-          <button class="period-btn" :class="statsPeriod===p && 'period-btn-active'"
-            @click="statsPeriod=p;$nextTick(()=>drawStatsChart())" x-text="p"></button>
-        </template>
+      <!-- Period + service toggles -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+        <div class="period-btns">
+          <template x-for="p in ['1h','6h','24h','7d','30d','3m','6m','12m','All']" :key="p">
+            <button class="period-btn" :class="statsPeriod===p && 'period-btn-active'"
+              @click="switchStatsPeriod(p)" x-text="p"></button>
+          </template>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="period-btn"
+            :class="statsShowTotal && 'period-btn-active'"
+            style="color:#c9d1d9"
+            @click="statsShowTotal=!statsShowTotal;$nextTick(()=>drawStatsCharts())"
+            x-text="gwName + ' total'"></button>
+          <template x-for="(pm, idx) in config.ports" :key="pm.port">
+            <button class="period-btn"
+              :class="statsServiceVisible[pm.port]!==false && 'period-btn-active'"
+              :style="'color:' + portColor(idx)"
+              @click="statsServiceVisible[pm.port]=statsServiceVisible[pm.port]===false?true:false;$nextTick(()=>drawStatsCharts())"
+              x-text="pm.name"></button>
+          </template>
+        </div>
       </div>
 
-      <!-- Summary -->
+      <!-- Summary boxes -->
       <div class="speed-grid" style="margin-bottom:16px">
         <div class="speed-box">
           <div class="speed-label">Total Download</div>
@@ -775,110 +800,123 @@
         </div>
       </div>
 
-      <div style="display:flex;gap:12px;font-size:11px;color:#8b949e;margin-bottom:8px">
-        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:linear-gradient(180deg,#3fb950,#1a3a2a);vertical-align:middle;margin-right:4px"></span>Download</span>
-        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:linear-gradient(180deg,#58a6ff,#1c2541);vertical-align:middle;margin-right:4px"></span>Upload</span>
+      <!-- Download stacked area -->
+      <div style="font-size:12px;color:#8b949e;margin-bottom:4px;display:flex;justify-content:space-between">
+        <span>Download Volume</span>
+        <span class="speed-dl" x-text="formatBytes(statsSummary.totalRx)"></span>
+      </div>
+      <div style="position:relative">
+        <canvas x-ref="statsDlCanvas" style="width:100%;height:180px;display:block"
+          @mousemove="statsAreaHover($event, 'dl')"
+          @mouseleave="statsDlTooltip.show=false"></canvas>
+        <div class="graph-tooltip" x-show="statsDlTooltip.show" x-cloak
+          :style="'left:'+statsDlTooltip.x+'px;top:'+statsDlTooltip.y+'px'">
+          <div class="tt-time" x-text="statsDlTooltip.date"></div>
+          <div style="display:grid;grid-template-columns:auto auto auto;gap:1px 8px;font-size:11px;margin-top:4px">
+            <template x-for="row in statsDlTooltip.rows" :key="row.name">
+              <div style="display:contents">
+                <div :style="'color:'+row.color" x-text="row.name"></div>
+                <div class="speed-dl" style="text-align:right" x-text="row.value"></div>
+                <div style="text-align:right;color:#484f58" x-text="row.pct+'%'"></div>
+              </div>
+            </template>
+            <div style="color:#c9d1d9;border-top:1px solid #30363d;padding-top:2px;font-weight:600">Total</div>
+            <div class="speed-dl" style="text-align:right;border-top:1px solid #30363d;padding-top:2px;font-weight:600" x-text="statsDlTooltip.total"></div>
+            <div style="border-top:1px solid #30363d;padding-top:2px"></div>
+          </div>
+        </div>
       </div>
 
+      <!-- Upload stacked area -->
+      <div style="font-size:12px;color:#8b949e;margin:12px 0 4px;display:flex;justify-content:space-between">
+        <span>Upload Volume</span>
+        <span class="speed-ul" x-text="formatBytes(statsSummary.totalTx)"></span>
+      </div>
       <div style="position:relative">
-        <canvas x-ref="statsCanvas" style="width:100%;height:220px;display:block"
-          @mousemove="statsBarHover($event, 'total')"
-          @mouseleave="totalTooltip.show=false"></canvas>
-        <div class="graph-tooltip" x-show="totalTooltip.show" x-cloak
-          :style="'left:'+totalTooltip.x+'px;top:'+totalTooltip.y+'px'">
-          <div class="tt-time" x-text="totalTooltip.date"></div>
-          <div class="tt-dl" x-text="'↓ ' + totalTooltip.dl"></div>
-          <div class="tt-ul" x-text="'↑ ' + totalTooltip.ul"></div>
+        <canvas x-ref="statsUlCanvas" style="width:100%;height:180px;display:block"
+          @mousemove="statsAreaHover($event, 'ul')"
+          @mouseleave="statsUlTooltip.show=false"></canvas>
+        <div class="graph-tooltip" x-show="statsUlTooltip.show" x-cloak
+          :style="'left:'+statsUlTooltip.x+'px;top:'+statsUlTooltip.y+'px'">
+          <div class="tt-time" x-text="statsUlTooltip.date"></div>
+          <div style="display:grid;grid-template-columns:auto auto auto;gap:1px 8px;font-size:11px;margin-top:4px">
+            <template x-for="row in statsUlTooltip.rows" :key="row.name">
+              <div style="display:contents">
+                <div :style="'color:'+row.color" x-text="row.name"></div>
+                <div class="speed-ul" style="text-align:right" x-text="row.value"></div>
+                <div style="text-align:right;color:#484f58" x-text="row.pct+'%'"></div>
+              </div>
+            </template>
+            <div style="color:#c9d1d9;border-top:1px solid #30363d;padding-top:2px;font-weight:600">Total</div>
+            <div class="speed-ul" style="text-align:right;border-top:1px solid #30363d;padding-top:2px;font-weight:600" x-text="statsUlTooltip.total"></div>
+            <div style="border-top:1px solid #30363d;padding-top:2px"></div>
+          </div>
         </div>
+      </div>
+
+      <!-- Legend -->
+      <div style="display:flex;gap:14px;font-size:11px;color:#8b949e;margin-top:8px">
+        <span x-show="statsShowTotal" style="display:flex;align-items:center;gap:5px">
+          <span style="display:inline-block;width:10px;height:3px;border-radius:1px;background:rgba(201,209,217,0.5)"></span>
+          <span x-text="gwName + ' total'"></span>
+        </span>
+        <template x-for="(pm, idx) in config.ports" :key="pm.port">
+          <span x-show="statsServiceVisible[pm.port]!==false" style="display:flex;align-items:center;gap:5px">
+            <span :style="'display:inline-block;width:10px;height:3px;border-radius:1px;background:'+portColor(idx)"></span>
+            <span x-text="pm.name"></span>
+          </span>
+        </template>
       </div>
     </div>
 
-    <!-- Per-Service Volume -->
+    <!-- Summary table -->
     <template x-if="config.ports && config.ports.length > 0">
       <div class="card">
-        <div class="card-title">Per-Service Volume</div>
-
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
-        <div class="period-btns">
-          <template x-for="p in ['7d','30d','3m','6m','12m','All']" :key="p">
-            <button class="period-btn" :class="statsPeriod===p && 'period-btn-active'"
-              @click="statsPeriod=p;$nextTick(()=>{drawStatsChart();drawServiceChart()})" x-text="p"></button>
-          </template>
+        <div class="card-title">
+          <span x-text="'Period Summary — ' + statsPeriod"></span>
+          <span style="font-size:11px;color:#484f58" x-text="filteredDaily.length > 0 ? filteredDaily[0].date + ' – ' + filteredDaily[filteredDaily.length-1].date : ''"></span>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="period-btn"
-            :class="statsShowTotal && 'period-btn-active'"
-            style="color:#8b949e"
-            @click="statsShowTotal=!statsShowTotal;$nextTick(()=>drawServiceChart())" x-text="gwName"></button>
-          <template x-for="(pm, idx) in config.ports" :key="pm.port">
-            <button class="period-btn"
-              :class="statsServiceVisible[pm.port]!==false && 'period-btn-active'"
-              :style="'color:' + portColor(idx)"
-              @click="statsServiceVisible[pm.port]=statsServiceVisible[pm.port]===false?true:false;$nextTick(()=>drawServiceChart())"
-              x-text="pm.name"></button>
-          </template>
-        </div>
-        </div>
-
-        <div style="position:relative">
-          <canvas x-ref="serviceCanvas" style="width:100%;height:220px;display:block"
-            @mousemove="statsBarHover($event, 'service')"
-            @mouseleave="serviceTooltip.show=false"></canvas>
-          <div class="graph-tooltip" x-show="serviceTooltip.show" x-cloak
-            :style="'left:'+serviceTooltip.x+'px;top:'+serviceTooltip.y+'px'">
-            <div class="tt-time" x-text="serviceTooltip.date"></div>
-            <div style="display:grid;grid-template-columns:auto auto auto auto;gap:1px 8px;font-size:11px;margin-top:4px">
-              <template x-for="row in serviceTooltip.rows" :key="row.name">
-                <template x-if="true">
-                  <div style="display:contents">
-                    <div :style="'color:'+row.color" x-text="row.name"></div>
-                    <div class="speed-dl" style="text-align:right" x-text="'↓'+row.dl"></div>
-                    <div class="speed-ul" style="text-align:right" x-text="'↑'+row.ul"></div>
-                    <div style="text-align:right;color:#484f58" x-text="row.pct+'%'"></div>
-                  </div>
-                </template>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr>
+                <th style="text-align:left;padding:6px 10px;border-bottom:1px solid #30363d;color:#8b949e;font-weight:500;font-size:11px">Service</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #30363d;color:#8b949e;font-weight:500;font-size:11px">Download</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #30363d;color:#8b949e;font-weight:500;font-size:11px">Upload</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #30363d;color:#8b949e;font-weight:500;font-size:11px">Total</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #30363d;color:#8b949e;font-weight:500;font-size:11px">Share</th>
+                <th style="text-align:right;padding:6px 10px;border-bottom:1px solid #30363d;color:#8b949e;font-weight:500;font-size:11px" x-text="statsSummary.avgLabel"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(pm, idx) in config.ports" :key="pm.port">
+                <tr style="border-bottom:1px solid #21262d">
+                  <td style="padding:6px 10px">
+                    <span :style="'display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle;background:'+portColor(idx)"></span>
+                    <span x-text="pm.name"></span>
+                  </td>
+                  <td class="speed-dl" style="text-align:right;padding:6px 10px" x-text="formatBytes(serviceTotal(pm.port).rx)"></td>
+                  <td class="speed-ul" style="text-align:right;padding:6px 10px" x-text="formatBytes(serviceTotal(pm.port).tx)"></td>
+                  <td style="text-align:right;padding:6px 10px;color:#8b949e" x-text="formatBytes(serviceTotal(pm.port).rx + serviceTotal(pm.port).tx)"></td>
+                  <td style="text-align:right;padding:6px 10px;color:#8b949e" x-text="serviceTotal(pm.port).pct + '%'"></td>
+                  <td style="text-align:right;padding:6px 10px;color:#8b949e" x-text="formatBytes(serviceTotal(pm.port).avgRx + serviceTotal(pm.port).avgTx)"></td>
+                </tr>
               </template>
-              <div style="color:#c9d1d9;border-top:1px solid #30363d;padding-top:2px" x-text="gwName"></div>
-              <div class="speed-dl" style="text-align:right;border-top:1px solid #30363d;padding-top:2px" x-text="'↓'+serviceTooltip.totalDl"></div>
-              <div class="speed-ul" style="text-align:right;border-top:1px solid #30363d;padding-top:2px" x-text="'↑'+serviceTooltip.totalUl"></div>
-              <div style="text-align:right;color:#484f58;border-top:1px solid #30363d;padding-top:2px">100%</div>
-            </div>
-          </div>
+              <!-- VPN Total row -->
+              <tr style="border-top:2px solid #30363d">
+                <td style="padding:6px 10px;font-weight:600;color:#c9d1d9" x-text="gwName + ' total'"></td>
+                <td class="speed-dl" style="text-align:right;padding:6px 10px;font-weight:600" x-text="formatBytes(statsSummary.totalRx)"></td>
+                <td class="speed-ul" style="text-align:right;padding:6px 10px;font-weight:600" x-text="formatBytes(statsSummary.totalTx)"></td>
+                <td style="text-align:right;padding:6px 10px;font-weight:600;color:#c9d1d9" x-text="formatBytes(statsSummary.totalRx + statsSummary.totalTx)"></td>
+                <td style="text-align:right;padding:6px 10px;color:#8b949e"></td>
+                <td style="text-align:right;padding:6px 10px;color:#8b949e" x-text="formatBytes(statsSummary.avgRx + statsSummary.avgTx)"></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-
-        <!-- Period totals table -->
-        <div style="border-top:1px solid #21262d;margin-top:16px;padding-top:12px">
-          <div style="font-size:12px;color:#8b949e;text-transform:uppercase;margin-bottom:8px"
-            x-text="'Period totals (' + statsPeriod + ')'"></div>
-          <div style="display:grid;grid-template-columns:1fr auto auto auto auto auto;gap:4px 12px;font-size:13px;align-items:center">
-            <!-- Header -->
-            <div style="font-size:11px;color:#484f58"></div>
-            <div style="font-size:11px;color:#484f58;text-align:right">Total DL</div>
-            <div style="font-size:11px;color:#484f58;text-align:right">Total UL</div>
-            <div style="font-size:11px;color:#484f58;text-align:right" x-text="statsSummary.avgLabel+' DL'"></div>
-            <div style="font-size:11px;color:#484f58;text-align:right" x-text="statsSummary.avgLabel+' UL'"></div>
-            <div style="font-size:11px;color:#484f58;text-align:right">%</div>
-            <!-- Services -->
-            <template x-for="(pm, idx) in config.ports" :key="pm.port">
-              <template x-if="true">
-                <div style="display:contents">
-                  <div :style="'font-weight:500;color:'+portColor(idx)" x-text="pm.name"></div>
-                  <div class="speed-dl" style="text-align:right" x-text="'↓'+formatBytes(serviceTotal(pm.port).rx)"></div>
-                  <div class="speed-ul" style="text-align:right" x-text="'↑'+formatBytes(serviceTotal(pm.port).tx)"></div>
-                  <div class="speed-dl" style="text-align:right" x-text="'↓'+formatBytes(serviceTotal(pm.port).avgRx)"></div>
-                  <div class="speed-ul" style="text-align:right" x-text="'↑'+formatBytes(serviceTotal(pm.port).avgTx)"></div>
-                  <div style="text-align:right;color:#484f58;font-size:11px" x-text="serviceTotal(pm.port).pct+'%'"></div>
-                </div>
-              </template>
-            </template>
-            <!-- Total row -->
-            <div style="font-weight:600;color:#c9d1d9;border-top:1px solid #21262d;padding-top:6px" x-text="gwName"></div>
-            <div class="speed-dl" style="text-align:right;border-top:1px solid #21262d;padding-top:6px" x-text="'↓'+formatBytes(statsSummary.totalRx)"></div>
-            <div class="speed-ul" style="text-align:right;border-top:1px solid #21262d;padding-top:6px" x-text="'↑'+formatBytes(statsSummary.totalTx)"></div>
-            <div class="speed-dl" style="text-align:right;border-top:1px solid #21262d;padding-top:6px" x-text="'↓'+formatBytes(statsSummary.avgRx)"></div>
-            <div class="speed-ul" style="text-align:right;border-top:1px solid #21262d;padding-top:6px" x-text="'↑'+formatBytes(statsSummary.avgTx)"></div>
-            <div style="text-align:right;border-top:1px solid #21262d;padding-top:6px;color:#484f58;font-size:11px">100%</div>
-          </div>
+        <div style="font-size:11px;color:#6e7681;margin-top:8px;line-height:1.5">
+          VPN total includes all traffic through the tunnel (payload + TCP/IP headers + protocol overhead).
+          Service totals show application-level data only. The difference (~5-10%) is normal network overhead.
         </div>
       </div>
     </template>
@@ -923,9 +961,10 @@ function app() {
     dailyData: [],
     statsPeriod: '7d',
     statsServiceVisible: {},
-    statsShowTotal: false,
-    totalTooltip: { show: false, x: 0, y: 0, date: '', dl: '', ul: '' },
-    serviceTooltip: { show: false, x: 0, y: 0, date: '', rows: [] },
+    statsShowTotal: true,
+    statsHistoryData: [], // aggregated volume buckets from ring buffer (short periods)
+    statsDlTooltip: { show: false, x: 0, y: 0, date: '', rows: [], total: '' },
+    statsUlTooltip: { show: false, x: 0, y: 0, date: '', rows: [], total: '' },
     liveStats: { rxRate: 0, txRate: 0, maxRx24h: 0, maxTx24h: 0, avgRx24h: 0, avgTx24h: 0, totalRx: 0, totalTx: 0, vol24hRx: 0, vol24hTx: 0 },
     graphPeriod: '1h',
     graphShow: 'both',
@@ -1171,17 +1210,12 @@ function app() {
       return this.activeUp.active ? this.activeUp.rateMB === 0 : (this.config.defaultUp || 0) === 0;
     },
 
-    // Use qBit API sum when ports configured, otherwise wg0 interface stats
+    // Total VPN throughput from wg0 (corrected for nft drops server-side).
+    // Works with any service behind VPN — no qBit dependency.
     get currentDlSpeed() {
-      if (this.liveStats.ports && this.liveStats.ports.length > 0) {
-        return this.liveStats.ports.reduce((sum, p) => sum + (p.rxRate || 0), 0);
-      }
       return this.liveStats.rxRate;
     },
     get currentUlSpeed() {
-      if (this.liveStats.ports && this.liveStats.ports.length > 0) {
-        return this.liveStats.ports.reduce((sum, p) => sum + (p.txRate || 0), 0);
-      }
       return this.liveStats.txRate;
     },
 
@@ -1218,8 +1252,7 @@ function app() {
         this.fetchDaily();
       }
       if (t === 'stats') {
-        this.fetchDaily();
-        this.$nextTick(() => this.drawStatsChart());
+        this.fetchStatsData();
       }
     },
 
@@ -1230,17 +1263,6 @@ function app() {
       } catch {}
     },
 
-    dailyBarWidth(bytes, type) {
-      if (!this.dailyData.length) return 0;
-      let max = 0;
-      for (const d of this.dailyData) {
-        if (d.rxBytes > max) max = d.rxBytes;
-        if (d.txBytes > max) max = d.txBytes;
-      }
-      if (max === 0) return 0;
-      return Math.max(2, (bytes / max) * 100);
-    },
-
     connectSSE() {
       if (this.statsSSE || this._sseReconnecting) return;
       this.statsSSE = new EventSource('/api/stats/stream');
@@ -1248,18 +1270,24 @@ function app() {
       this.statsSSE.onmessage = (e) => {
         const data = JSON.parse(e.data);
         this.liveStats = data;
-        // Refresh daily volume every ~30s (10 SSE messages at 3s each)
-        if (++this._dailyPollCount >= 10) {
+        // Refresh stats periodically
+        if (++this._dailyPollCount >= 10) { // every ~30s
           this._dailyPollCount = 0;
-          if (this.tab === 'traffic' || this.tab === 'stats') {
+          if (this.tab === 'traffic') {
             this.fetchDaily();
-            if (this.tab === 'stats') this.$nextTick(() => { this.drawStatsChart(); this.drawServiceChart(); });
           }
+          // Long stats periods (7d+) refresh every 30s
+          if (this.tab === 'stats' && !['1h','6h','24h'].includes(this.statsPeriod)) {
+            this.fetchStatsData();
+          }
+        }
+        // Short stats periods: live-accumulate into current bucket every SSE tick (3s)
+        if (this.tab === 'stats' && ['1h','6h','24h'].includes(this.statsPeriod)) {
+          this._statsLiveAccumulate(data);
         }
         // Append to graph data for live updates (1h view)
         if (this.graphPeriod === '1h' && data.rxRate !== undefined) {
           const pt = { t: Math.floor(Date.now()/1000), r: data.rxRate, s: data.txRate };
-          // Include per-port rates from SSE
           if (data.ports && data.ports.length > 0) {
             pt.p = {};
             for (const ps of data.ports) {
@@ -1338,14 +1366,23 @@ function app() {
         };
       }).filter(pp => pp.dl !== '0 MB/s' || pp.ul !== '0 MB/s');
 
+      // Current limit for tooltip display
+      const limitDown = this.activeRule.down || 0;
+      const limitUp = this.activeRule.up || 0;
+      let limitText = '';
+      if (limitDown > 0 || limitUp > 0) {
+        limitText = 'Limit: ↓' + (limitDown || '∞') + ' ↑' + (limitUp || '∞') + ' MB/s';
+      }
+
       this.graphTooltip = {
         show: true,
-        x: Math.min(mx + 12, rect.width - 180),
-        y: Math.max(e.clientY - rect.top - 60 - ports.length * 16, 0),
+        x: Math.min(mx + 12, rect.width - 250),
+        y: Math.max(e.clientY - rect.top - 80 - ports.length * 18, 0),
         time: timeStr,
         dl: this.formatSpeed(p.r),
         ul: this.formatSpeed(p.s),
-        ports
+        ports,
+        limit: limitText
       };
     },
 
@@ -1380,9 +1417,7 @@ function app() {
       for (let i = 0; i < raw.length; i += bucketSize) {
         const bucket = raw.slice(i, Math.min(i + bucketSize, raw.length));
         const avg = { t: 0, r: 0, s: 0 };
-        // Collect port keys
         const portSums = {};
-        let portCount = 0;
         for (const p of bucket) {
           avg.t += p.t;
           avg.r += p.r;
@@ -1596,30 +1631,6 @@ function app() {
 
       ctx.restore(); // Remove clip
 
-      // Draw rate limit line (dashed)
-      const limitDown = this.activeRule.down || 0;
-      const limitUp = this.activeRule.up || 0;
-      const drawLimit = (rateMB, color) => {
-        if (rateMB <= 0) return;
-        const rateBytes = rateMB * 1024 * 1024;
-        if (rateBytes > maxRate) return; // off-scale
-        const y = pad.top + gH - (rateBytes / maxRate) * gH;
-        ctx.beginPath();
-        ctx.setLineDash([6, 4]);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.moveTo(pad.left, y);
-        ctx.lineTo(W - pad.right, y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = color;
-        ctx.font = '10px -apple-system, sans-serif';
-        ctx.textAlign = 'right';
-        ctx.fillText(rateMB + ' MB/s limit', W - pad.right, y - 4);
-      };
-      if (this.graphShow !== 'ul') drawLimit(limitDown, 'rgba(210,153,34,0.6)');
-      if (this.graphShow !== 'dl') drawLimit(limitUp, 'rgba(210,153,34,0.4)');
-
       // Legend
       ctx.font = '11px -apple-system, sans-serif';
       ctx.textAlign = 'left';
@@ -1659,6 +1670,10 @@ function app() {
     // --- Stats tab ---
 
     get filteredDaily() {
+      // Short periods: use aggregated history data
+      if (['1h','6h','24h'].includes(this.statsPeriod)) {
+        return this.statsHistoryData;
+      }
       if (!this.dailyData.length) return [];
       const now = new Date();
       let days = 7;
@@ -1720,13 +1735,14 @@ function app() {
       if (!data.length) return { totalRx: 0, totalTx: 0, avgRx: 0, avgTx: 0, avgLabel: 'Daily Avg' };
       let totalRx = 0, totalTx = 0;
       for (const d of data) { totalRx += d.rxBytes; totalTx += d.txBytes; }
-      // Use actual day count for average, not group count
       let dayCount = data.length;
-      const labels = { day: 'Daily Avg', week: 'Weekly Avg', month: 'Monthly Avg', year: 'Yearly Avg' };
       let avgLabel = 'Daily Avg';
-      if (['30d'].includes(this.statsPeriod)) { avgLabel = 'Weekly Avg'; dayCount = data.length; }
-      else if (['3m','6m','12m'].includes(this.statsPeriod)) { avgLabel = 'Monthly Avg'; dayCount = data.length; }
-      else if (this.statsPeriod === 'All') { avgLabel = 'Yearly Avg'; dayCount = data.length; }
+      if (this.statsPeriod === '1h') { avgLabel = 'Avg/min'; }
+      else if (this.statsPeriod === '6h') { avgLabel = 'Avg/5min'; }
+      else if (this.statsPeriod === '24h') { avgLabel = 'Avg/15min'; }
+      else if (this.statsPeriod === '30d') { avgLabel = 'Weekly Avg'; }
+      else if (['3m','6m','12m'].includes(this.statsPeriod)) { avgLabel = 'Monthly Avg'; }
+      else if (this.statsPeriod === 'All') { avgLabel = 'Yearly Avg'; }
       return {
         totalRx, totalTx,
         avgRx: Math.round(totalRx / dayCount),
@@ -1744,131 +1760,153 @@ function app() {
           tx += d.ports[port].txBytes || 0;
         }
       }
-      const total = this.statsSummary.totalRx || 1;
+      // Compute share using sum of all service port data as denominator
+      // (avoids mixing wg0 + port data when partial port days exist)
+      let allPortsTotal = 0;
+      for (const d of data) {
+        if (d.ports) {
+          for (const pb of Object.values(d.ports)) {
+            allPortsTotal += (pb.rxBytes || 0) + (pb.txBytes || 0);
+          }
+        }
+      }
       const n = data.length || 1;
       return {
         rx, tx,
         avgRx: Math.round(rx / n),
         avgTx: Math.round(tx / n),
-        pct: Math.round((rx / total) * 100)
+        pct: allPortsTotal > 0 ? Math.round(((rx + tx) / allPortsTotal) * 100) : 0
       };
     },
 
-    drawStatsChart() {
-      const canvas = this.$refs.statsCanvas;
-      if (!canvas) return;
-      const data = this.filteredDaily;
-      if (!data.length) return;
+    // Live-accumulate SSE data into the current stats bucket for short periods
+    _statsLiveAccumulate(data) {
+      if (!this.statsHistoryData.length) return;
+      const sampleSec = 3;
+      const now = Math.floor(Date.now() / 1000);
 
-      const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      const ctx = canvas.getContext('2d');
-      ctx.scale(dpr, dpr);
-      const W = rect.width, H = rect.height;
-      const pad = { top: 10, right: 10, bottom: 25, left: 55 };
-      const gW = W - pad.left - pad.right;
-      const gH = H - pad.top - pad.bottom;
+      let bucketSec;
+      if (this.statsPeriod === '1h') bucketSec = 60;
+      else if (this.statsPeriod === '6h') bucketSec = 5 * 60;
+      else bucketSec = 15 * 60;
 
-      ctx.clearRect(0, 0, W, H);
+      const bucketStart = Math.floor(now / bucketSec) * bucketSec;
+      const last = this.statsHistoryData[this.statsHistoryData.length - 1];
 
-      // Find max
-      let maxVal = 0;
-      for (const d of data) {
-        if (d.rxBytes > maxVal) maxVal = d.rxBytes;
-        if (d.txBytes > maxVal) maxVal = d.txBytes;
-      }
-      if (maxVal === 0) maxVal = 1024*1024*1024;
-      maxVal *= 1.1;
-
-      // Grid
-      ctx.strokeStyle = '#21262d';
-      ctx.lineWidth = 1;
-      for (let i = 0; i <= 4; i++) {
-        const y = pad.top + (gH / 4) * i;
-        ctx.beginPath();
-        ctx.moveTo(pad.left, y);
-        ctx.lineTo(W - pad.right, y);
-        ctx.stroke();
-        ctx.fillStyle = '#484f58';
-        ctx.font = '10px -apple-system, sans-serif';
-        ctx.textAlign = 'right';
-        ctx.fillText(this.formatBytes(maxVal * (1 - i/4)), pad.left - 6, y + 4);
-      }
-
-      // Bars
-      const n = data.length;
-      const barGroupW = gW / n;
-      const barW = Math.max(2, Math.min(20, (barGroupW - 6) / 2));
-      const gap = 2;
-
-      for (let i = 0; i < n; i++) {
-        const d = data[i];
-        const cx = pad.left + barGroupW * i + barGroupW / 2;
-        const dlH = (d.rxBytes / maxVal) * gH;
-        const ulH = (d.txBytes / maxVal) * gH;
-
-        // DL bar
-        const dlGrad = ctx.createLinearGradient(0, pad.top + gH - dlH, 0, pad.top + gH);
-        dlGrad.addColorStop(0, '#3fb950');
-        dlGrad.addColorStop(1, '#1a3a2a');
-        ctx.fillStyle = dlGrad;
-        ctx.beginPath();
-        ctx.roundRect(cx - barW - gap/2, pad.top + gH - dlH, barW, dlH, [3, 3, 0, 0]);
-        ctx.fill();
-
-        // UL bar
-        const ulGrad = ctx.createLinearGradient(0, pad.top + gH - ulH, 0, pad.top + gH);
-        ulGrad.addColorStop(0, '#58a6ff');
-        ulGrad.addColorStop(1, '#1c2541');
-        ctx.fillStyle = ulGrad;
-        ctx.beginPath();
-        ctx.roundRect(cx + gap/2, pad.top + gH - ulH, barW, ulH, [3, 3, 0, 0]);
-        ctx.fill();
-
-        // Label
-        ctx.fillStyle = '#484f58';
-        ctx.font = '10px -apple-system, sans-serif';
-        ctx.textAlign = 'center';
-        // Short date labels: 7d=dd, 30d=dd.mm, months=Jan/Feb/Mar, years=YYYY
-        let lbl = '';
-        if (d.date.startsWith('W')) lbl = d.date; // week labels
-        else if (d.date.length === 4) lbl = d.date; // year
-        else if (d.date.length === 7) { // month: 2026-03 -> Mar
-          const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          lbl = months[parseInt(d.date.slice(5)) - 1] || d.date.slice(5);
-        } else if (n <= 7) lbl = d.date.slice(8); // dd
-        else lbl = d.date.slice(8) + '.' + d.date.slice(5,7); // dd.mm
-        const labelEvery = n <= 7 ? 1 : n <= 12 ? 1 : Math.ceil(n / 10);
-        if (lbl && i % labelEvery === 0) {
-          ctx.fillText(lbl, cx, H - 4);
+      // wg0 rates (corrected for nft drops server-side)
+      const totalR = data.rxRate || 0;
+      const totalS = data.txRate || 0;
+      const portRates = {};
+      if (data.ports && data.ports.length > 0) {
+        for (const ps of data.ports) {
+          portRates[ps.port] = { r: ps.rxRate || 0, s: ps.txRate || 0 };
         }
       }
 
-      // Also draw service chart
-      this.drawServiceChart();
+      // Check if we need a new bucket
+      const labelFn = (t) => {
+        const d = new Date(t * 1000);
+        if (bucketSec >= 3600) return d.getHours().toString().padStart(2,'0') + ':00';
+        return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+      };
+      const currentLabel = labelFn(bucketStart);
+
+      if (last.date !== currentLabel) {
+        // New bucket
+        const newBucket = { date: currentLabel, rxBytes: 0, txBytes: 0, ports: {} };
+        this.statsHistoryData.push(newBucket);
+        // Drop oldest if we have too many
+        const maxBuckets = this.statsPeriod === '1h' ? 61 : this.statsPeriod === '6h' ? 73 : 97;
+        if (this.statsHistoryData.length > maxBuckets) {
+          this.statsHistoryData.shift();
+        }
+      }
+
+      // Accumulate into last bucket
+      const bucket = this.statsHistoryData[this.statsHistoryData.length - 1];
+      bucket.rxBytes += totalR * sampleSec;
+      bucket.txBytes += totalS * sampleSec;
+      for (const [port, pr] of Object.entries(portRates)) {
+        if (!bucket.ports[port]) bucket.ports[port] = { rxBytes: 0, txBytes: 0 };
+        bucket.ports[port].rxBytes += pr.r * sampleSec;
+        bucket.ports[port].txBytes += pr.s * sampleSec;
+      }
+
+      this.drawStatsCharts();
     },
 
-    drawServiceChart() {
-      const canvas = this.$refs.serviceCanvas;
+    switchStatsPeriod(p) {
+      this.statsPeriod = p;
+      this.fetchStatsData();
+    },
+
+    async fetchStatsData() {
+      if (['1h','6h','24h'].includes(this.statsPeriod)) {
+        // Short period: aggregate ring buffer history into volume buckets
+        try {
+          const res = await fetch('/api/stats/history?period=' + this.statsPeriod);
+          const points = (await res.json()) || [];
+          this.statsHistoryData = this.aggregateHistory(points, this.statsPeriod);
+        } catch { this.statsHistoryData = []; }
+      } else {
+        // Long period: use daily data
+        await this.fetchDaily();
+        this.statsHistoryData = [];
+      }
+      this.$nextTick(() => this.drawStatsCharts());
+    },
+
+    // Aggregate rate samples into volume time buckets
+    aggregateHistory(points, period) {
+      if (!points.length) return [];
+      const sampleSec = 3; // sample interval
+
+      // Bucket size in seconds — smaller = more points = smoother curves + more live feel
+      let bucketSec, labelFn;
+      if (period === '1h') {
+        bucketSec = 60; // 1-min buckets (60 points)
+        labelFn = (t) => { const d = new Date(t*1000); return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0'); };
+      } else if (period === '6h') {
+        bucketSec = 5 * 60; // 5-min buckets (72 points)
+        labelFn = (t) => { const d = new Date(t*1000); return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0'); };
+      } else {
+        bucketSec = 15 * 60; // 15-min buckets (96 points)
+        labelFn = (t) => { const d = new Date(t*1000); return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0'); };
+      }
+
+      const buckets = {};
+      for (const pt of points) {
+        const bucketStart = Math.floor(pt.t / bucketSec) * bucketSec;
+        if (!buckets[bucketStart]) {
+          buckets[bucketStart] = { date: labelFn(bucketStart), rxBytes: 0, txBytes: 0, ports: {} };
+        }
+        const b = buckets[bucketStart];
+        b.rxBytes += (pt.r || 0) * sampleSec;
+        b.txBytes += (pt.s || 0) * sampleSec;
+        if (pt.p) {
+          for (const [port, pr] of Object.entries(pt.p)) {
+            if (!b.ports[port]) b.ports[port] = { rxBytes: 0, txBytes: 0 };
+            b.ports[port].rxBytes += (pr.r || 0) * sampleSec;
+            b.ports[port].txBytes += (pr.s || 0) * sampleSec;
+          }
+        }
+      }
+
+      // Sort by time
+      return Object.entries(buckets)
+        .sort(([a], [b]) => parseInt(a) - parseInt(b))
+        .map(([, v]) => v);
+    },
+
+    drawStatsCharts() {
+      this.drawStatsArea(this.$refs.statsDlCanvas, 'rx');
+      this.drawStatsArea(this.$refs.statsUlCanvas, 'tx');
+    },
+
+    drawStatsArea(canvas, dir) {
       if (!canvas) return;
       const data = this.filteredDaily;
       const ports = (this.config.ports || []).filter(pm => this.statsServiceVisible[pm.port] !== false);
-      if (!data.length || !ports.length) {
-        const dpr = window.devicePixelRatio || 1;
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        const ctx = canvas.getContext('2d');
-        ctx.scale(dpr, dpr);
-        ctx.clearRect(0, 0, rect.width, rect.height);
-        ctx.fillStyle = '#484f58';
-        ctx.font = '13px -apple-system, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('Select services to compare', rect.width/2, rect.height/2);
-        return;
-      }
 
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
@@ -1883,25 +1921,46 @@ function app() {
 
       ctx.clearRect(0, 0, W, H);
 
-      // Find max across visible ports + total (consider both DL and UL)
+      if (!data.length || (!this.statsShowTotal && !ports.length)) {
+        ctx.fillStyle = '#484f58';
+        ctx.font = '13px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('No data', W/2, H/2);
+        return;
+      }
+
+      const n = data.length;
+      const byteKey = dir === 'rx' ? 'rxBytes' : 'txBytes';
+      const showTotal = this.statsShowTotal;
+
+      // VPN total values per data point
+      const totalVals = data.map(d => d[byteKey] || 0);
+
+      // Per-service stacked values
+      const stacked = [];
+      const running = new Array(n).fill(0);
+      for (const pm of ports) {
+        const portIdx = this.config.ports.findIndex(p => p.port === pm.port);
+        const layer = data.map((d, i) => {
+          const pb = d.ports && d.ports[pm.port];
+          const val = pb ? (pb[byteKey] || 0) : 0;
+          running[i] += val;
+          return running[i];
+        });
+        stacked.push({ top: [...layer], color: this.portColor(portIdx), portIdx });
+      }
+
+      // Max value with headroom — consider both total and stacked
       let maxVal = 0;
-      for (const d of data) {
-        if (this.statsShowTotal) {
-          if (d.rxBytes > maxVal) maxVal = d.rxBytes;
-          if (d.txBytes > maxVal) maxVal = d.txBytes;
-        }
-        if (!d.ports) continue;
-        for (const pm of ports) {
-          const pb = d.ports[pm.port];
-          if (pb) {
-            if (pb.rxBytes > maxVal) maxVal = pb.rxBytes;
-            if (pb.txBytes > maxVal) maxVal = pb.txBytes;
-          }
-        }
+      for (let i = 0; i < n; i++) {
+        if (showTotal && totalVals[i] > maxVal) maxVal = totalVals[i];
+        if (running[i] > maxVal) maxVal = running[i];
       }
       if (maxVal === 0) maxVal = 1024*1024*1024;
-      maxVal *= 1.1;
-      const showTotal = this.statsShowTotal;
+      maxVal *= 1.2;
+
+      const xPos = (i) => n === 1 ? pad.left + gW / 2 : pad.left + (i / (n - 1)) * gW;
+      const yPos = (v) => pad.top + gH * (1 - v / maxVal);
 
       // Grid
       ctx.strokeStyle = '#21262d';
@@ -1918,143 +1977,98 @@ function app() {
         ctx.fillText(this.formatBytes(maxVal * (1 - i/4)), pad.left - 6, y + 4);
       }
 
-      // Bars: 4 per day — Total DL, Stacked DL, Total UL, Stacked UL
-      const n = data.length;
-      const barGroupW = gW / n;
-      const numBars = showTotal ? 4 : 2; // with total: TotalDL, StackedDL, TotalUL, StackedUL; without: StackedDL, StackedUL
-      const barW = Math.max(3, Math.min(18, (barGroupW - 6) / numBars));
-      const barGap = 1;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(pad.left, pad.top, gW, gH);
+      ctx.clip();
 
+      // Cardinal spline helper
+      const drawSpline = (pts) => {
+        if (pts.length < 2) { ctx.moveTo(pts[0].x, pts[0].y); return; }
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = pts[Math.max(0, i-1)], p1 = pts[i], p2 = pts[i+1], p3 = pts[Math.min(pts.length-1, i+2)];
+          ctx.bezierCurveTo(
+            p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6,
+            p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6,
+            p2.x, p2.y
+          );
+        }
+      };
+
+      // Draw VPN total area (background, if enabled)
+      if (showTotal) {
+        const totalPts = totalVals.map((v, i) => ({ x: xPos(i), y: yPos(v) }));
+        const zeroPts = new Array(n).fill(0).map((_, i) => ({ x: xPos(i), y: yPos(0) }));
+        ctx.beginPath();
+        drawSpline(totalPts);
+        for (let i = zeroPts.length - 1; i >= 0; i--) ctx.lineTo(zeroPts[i].x, zeroPts[i].y);
+        ctx.closePath();
+        const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + gH);
+        grad.addColorStop(0, 'rgba(201,209,217,0.2)');
+        grad.addColorStop(1, 'rgba(201,209,217,0.05)');
+        ctx.fillStyle = grad;
+        ctx.fill();
+        // Edge line
+        ctx.beginPath();
+        drawSpline(totalPts);
+        ctx.strokeStyle = 'rgba(201,209,217,0.5)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+
+      // Draw per-service stacked areas (overlay on top of total)
+      for (let s = stacked.length - 1; s >= 0; s--) {
+        const bottom = s > 0 ? stacked[s-1].top : new Array(n).fill(0);
+        const topPts = stacked[s].top.map((v, i) => ({ x: xPos(i), y: yPos(v) }));
+        const botPts = bottom.map((v, i) => ({ x: xPos(i), y: yPos(v) }));
+
+        ctx.beginPath();
+        drawSpline(topPts);
+        for (let i = botPts.length - 1; i >= 0; i--) ctx.lineTo(botPts[i].x, botPts[i].y);
+        ctx.closePath();
+        const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + gH);
+        grad.addColorStop(0, stacked[s].color + '55');
+        grad.addColorStop(1, stacked[s].color + '15');
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        ctx.beginPath();
+        drawSpline(topPts);
+        ctx.strokeStyle = stacked[s].color + 'aa';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+
+      ctx.restore();
+
+      // Date labels
+      ctx.fillStyle = '#484f58';
+      ctx.font = '10px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
       for (let i = 0; i < n; i++) {
-        const d = data[i];
-        const groupW = numBars * barW + (numBars - 1) * barGap;
-        const groupStart = pad.left + barGroupW * i + (barGroupW - groupW) / 2;
-        let bx = groupStart;
-
-        // Total DL (green)
-        if (showTotal) {
-          const h = (d.rxBytes / maxVal) * gH;
-          const grad = ctx.createLinearGradient(0, pad.top + gH - h, 0, pad.top + gH);
-          grad.addColorStop(0, '#3fb950');
-          grad.addColorStop(1, '#1a3a2a');
-          ctx.fillStyle = grad;
-          ctx.beginPath();
-          ctx.roundRect(bx, pad.top + gH - h, barW, h, [3, 3, 0, 0]);
-          ctx.fill();
-          bx += barW + barGap;
-        }
-
-        // Stacked DL per service
-        {
-          let stackY = pad.top + gH;
-          ports.forEach((pm) => {
-            const portIdx = this.config.ports.findIndex(p => p.port === pm.port);
-            const color = this.portColor(portIdx);
-            const pb = d.ports && d.ports[pm.port];
-            const val = pb ? pb.rxBytes : 0;
-            const h = (val / maxVal) * gH;
-            if (h > 0) {
-              stackY -= h;
-              ctx.fillStyle = color;
-              ctx.beginPath();
-              ctx.roundRect(bx, stackY, barW, h, stackY === pad.top + gH - h ? [3, 3, 0, 0] : [0, 0, 0, 0]);
-              ctx.fill();
-            }
-          });
-          // Round top of stacked bar
-          if (stackY < pad.top + gH) {
-            ctx.beginPath();
-            ctx.roundRect(bx, stackY, barW, 3, [3, 3, 0, 0]);
-            ctx.fill();
-          }
-          bx += barW + barGap;
-        }
-
-        // Total UL (blue)
-        if (showTotal) {
-          const h = (d.txBytes / maxVal) * gH;
-          const grad = ctx.createLinearGradient(0, pad.top + gH - h, 0, pad.top + gH);
-          grad.addColorStop(0, '#58a6ff');
-          grad.addColorStop(1, '#1c2541');
-          ctx.fillStyle = grad;
-          ctx.beginPath();
-          ctx.roundRect(bx, pad.top + gH - h, barW, h, [3, 3, 0, 0]);
-          ctx.fill();
-          bx += barW + barGap;
-        }
-
-        // Stacked UL per service
-        {
-          let stackY = pad.top + gH;
-          ports.forEach((pm) => {
-            const portIdx = this.config.ports.findIndex(p => p.port === pm.port);
-            const color = this.portColor(portIdx);
-            const pb = d.ports && d.ports[pm.port];
-            const val = pb ? pb.txBytes : 0;
-            const h = (val / maxVal) * gH;
-            if (h > 0) {
-              stackY -= h;
-              ctx.fillStyle = color + 'aa';
-              ctx.beginPath();
-              ctx.roundRect(bx, stackY, barW, h, [0, 0, 0, 0]);
-              ctx.fill();
-            }
-          });
-          if (stackY < pad.top + gH) {
-            ctx.beginPath();
-            ctx.roundRect(bx, stackY, barW, 3, [3, 3, 0, 0]);
-            ctx.fill();
-          }
-        }
-
-        // Date label
-        ctx.fillStyle = '#484f58';
-        ctx.font = '10px -apple-system, sans-serif';
-        ctx.textAlign = 'center';
-        const cx = pad.left + barGroupW * i + barGroupW / 2;
-        // Short date labels: 7d=dd, 30d=dd.mm, months=Jan/Feb/Mar, years=YYYY
         let lbl = '';
-        if (d.date.startsWith('W')) lbl = d.date; // week labels
-        else if (d.date.length === 4) lbl = d.date; // year
-        else if (d.date.length === 7) { // month: 2026-03 -> Mar
+        const d = data[i];
+        if (d.date.startsWith('W')) lbl = d.date;
+        else if (d.date.length === 4) lbl = d.date;
+        else if (d.date.length === 7) {
           const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
           lbl = months[parseInt(d.date.slice(5)) - 1] || d.date.slice(5);
-        } else if (n <= 7) lbl = d.date.slice(8); // dd
-        else lbl = d.date.slice(8) + '.' + d.date.slice(5,7); // dd.mm
+        } else if (n <= 7) lbl = d.date.slice(8);
+        else lbl = d.date.slice(8) + '.' + d.date.slice(5,7);
         const labelEvery = n <= 7 ? 1 : n <= 12 ? 1 : Math.ceil(n / 10);
         if (lbl && i % labelEvery === 0) {
-          ctx.fillText(lbl, cx, H - 4);
+          ctx.fillText(lbl, xPos(i), H - 4);
         }
       }
-
-      // Legend
-      ctx.font = '11px -apple-system, sans-serif';
-      ctx.textAlign = 'left';
-      let lx = pad.left + 4;
-      if (showTotal) {
-        ctx.fillStyle = 'rgba(201,209,217,0.3)';
-        ctx.fillRect(lx, pad.top + 2, 10, 3);
-        ctx.fillStyle = '#8b949e';
-        ctx.fillText('Total', lx + 14, pad.top + 7);
-        lx += 55;
-      }
-      ports.forEach((pm, pi) => {
-        const portIdx = this.config.ports.findIndex(p => p.port === pm.port);
-        const color = this.portColor(portIdx);
-        ctx.fillStyle = color;
-        ctx.fillRect(lx, pad.top + 2, 10, 3);
-        ctx.fillStyle = '#8b949e';
-        ctx.fillText(pm.name, lx + 14, pad.top + 7);
-        lx += ctx.measureText(pm.name).width + 24;
-      });
     },
 
-    statsBarHover(e, chart) {
+    statsAreaHover(e, dir) {
       const data = this.filteredDaily;
-      const tip = chart === 'total' ? 'totalTooltip' : 'serviceTooltip';
-      if (!data.length) { this[tip].show = false; return; }
+      const tipKey = dir === 'dl' ? 'statsDlTooltip' : 'statsUlTooltip';
+      if (!data.length) { this[tipKey].show = false; return; }
 
-      const canvas = chart === 'total' ? this.$refs.statsCanvas : this.$refs.serviceCanvas;
+      const canvas = dir === 'dl' ? this.$refs.statsDlCanvas : this.$refs.statsUlCanvas;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
@@ -2063,63 +2077,48 @@ function app() {
       const gW = rect.width - pad.left - pad.right;
 
       if (mx < pad.left || mx > rect.width - pad.right || my < pad.top || my > rect.height - pad.bottom) {
-        this[tip].show = false; return;
+        this[tipKey].show = false; return;
       }
 
       const n = data.length;
-      const barGroupW = gW / n;
-      const idx = Math.floor((mx - pad.left) / barGroupW);
-      if (idx < 0 || idx >= n) { this[tip].show = false; return; }
-
-      const d = data[idx];
-      if (!d.rxBytes && !d.txBytes) { this[tip].show = false; return; }
-
-      // Only show when mouse is directly over a bar
-      // Calculate actual bar positions for this group
-      const showTotal = this.statsShowTotal;
-      const ports = (this.config.ports || []).filter(pm => this.statsServiceVisible[pm.port] !== false);
-      const numBars = chart === 'total' ? 2 : (showTotal ? 4 : 2);
-      const bW = Math.max(3, Math.min(18, (barGroupW - 6) / (chart === 'total' ? 2 : (showTotal ? 4 : 2))));
-      const totalBarsWidth = numBars * bW + (numBars - 1);
-      const groupCenter = pad.left + barGroupW * idx + barGroupW / 2;
-      const barsLeft = groupCenter - totalBarsWidth / 2;
-      const barsRight = groupCenter + totalBarsWidth / 2;
-      if (mx < barsLeft - 4 || mx > barsRight + 4) { this[tip].show = false; return; }
-
-      if (chart === 'total') {
-        this.totalTooltip = {
-          show: true,
-          x: Math.min(mx + 12, rect.width - 150),
-          y: Math.max(my - 50, 0),
-          date: d.date,
-          dl: this.formatBytes(d.rxBytes),
-          ul: this.formatBytes(d.txBytes)
-        };
-      } else {
-        const ports = (this.config.ports || []).filter(pm => this.statsServiceVisible[pm.port] !== false);
-        const rows = ports.map((pm) => {
-          const portIdx = this.config.ports.findIndex(p => p.port === pm.port);
-          const pb = d.ports && d.ports[pm.port];
-          const rx = pb ? pb.rxBytes : 0;
-          const tx = pb ? pb.txBytes : 0;
-          return {
-            name: pm.name,
-            color: this.portColor(portIdx),
-            dl: this.formatBytes(rx),
-            ul: this.formatBytes(tx),
-            pct: d.rxBytes > 0 ? Math.round((rx / d.rxBytes) * 100) : 0
-          };
-        });
-        this.serviceTooltip = {
-          show: true,
-          x: Math.min(mx + 12, rect.width - 250),
-          y: Math.max(my - 40 - (rows.length + 1) * 16, 0),
-          date: d.date,
-          totalDl: this.formatBytes(d.rxBytes),
-          totalUl: this.formatBytes(d.txBytes),
-          rows
-        };
+      // Find closest data point by x position
+      let closest = 0, minDist = Infinity;
+      for (let i = 0; i < n; i++) {
+        const x = n === 1 ? pad.left + gW / 2 : pad.left + (i / (n - 1)) * gW;
+        const dist = Math.abs(mx - x);
+        if (dist < minDist) { minDist = dist; closest = i; }
       }
+      if (minDist > (n > 1 ? gW / (n - 1) / 2 : 40)) { this[tipKey].show = false; return; }
+
+      const d = data[closest];
+      const byteKey = dir === 'dl' ? 'rxBytes' : 'txBytes';
+      const ports = (this.config.ports || []).filter(pm => this.statsServiceVisible[pm.port] !== false);
+      let totalBytes = 0;
+
+      const rows = ports.map((pm) => {
+        const portIdx = this.config.ports.findIndex(p => p.port === pm.port);
+        const pb = d.ports && d.ports[pm.port];
+        const val = pb ? (pb[byteKey] || 0) : 0;
+        totalBytes += val;
+        return { name: pm.name, color: this.portColor(portIdx), val };
+      });
+
+      // Add percentages
+      const rowsWithPct = rows.map(r => ({
+        name: r.name,
+        color: r.color,
+        value: this.formatBytes(r.val),
+        pct: totalBytes > 0 ? Math.round((r.val / totalBytes) * 100) : 0
+      }));
+
+      this[tipKey] = {
+        show: true,
+        x: Math.min(mx + 12, rect.width - 200),
+        y: Math.max(my - 40 - (rows.length + 1) * 18, 0),
+        date: d.date,
+        total: this.formatBytes(totalBytes),
+        rows: rowsWithPct
+      };
     },
 
     async resetStats() {
@@ -2128,9 +2127,14 @@ function app() {
         const data = await res.json();
         if (data.error) throw new Error(data.error);
         this.dailyData = [];
+        this.statsHistoryData = [];
+        this.graphData = [];
         this.showToast('Statistics reset', 'toast-success');
         if (this.tab === 'stats') {
-          this.$nextTick(() => { this.drawStatsChart(); this.drawServiceChart(); });
+          this.$nextTick(() => this.drawStatsCharts());
+        }
+        if (this.tab === 'traffic') {
+          this.$nextTick(() => this.drawGraph());
         }
       } catch (e) {
         this.showToast('Reset failed: ' + e.message, 'toast-error');

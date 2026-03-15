@@ -6,7 +6,7 @@ Built as a layer on top of [hotio/base:alpinevpn](https://hotio.dev/containers/b
 
 ## Features
 
-- **Web UI** — configure rules, rates, and schedule from a browser (port 8090)
+- **Web UI** — configure rules, rates, and schedule from a browser (port 6050)
 - **Simple config** — set rates in MB/s, no conversion needed
 - **Hot-reload** — edit `traffic.conf` and changes apply within 10 seconds, no restart required
 - **Time-based scheduling** — different rates for different times of day and days of the week
@@ -50,8 +50,8 @@ docker run -d \
   -v /path/to/config:/config \
   -e VPN_ENABLED=true \
   -e VPN_CONF=wg0 \
-  -p 8090:8090 \
-  -e VPN_EXPOSE_PORTS_ON_LAN=8090/tcp \
+  -p 6050:6050 \
+  -e VPN_EXPOSE_PORTS_ON_LAN=6050/tcp \
   -e PRIVNET=192.168.86.0/24 \
   ghcr.io/prophetse7en/vpn-gateway:latest
 ```
@@ -60,11 +60,11 @@ On first start, a default `traffic.conf` is created in `/config/` with all optio
 
 ## Web UI
 
-The web UI is available on port **8090**. To enable it:
+The web UI is available on port **6050**. To enable it:
 
-1. Map port 8090 in your container config (`-p 8090:8090`)
-2. Add `8090/tcp` to `VPN_EXPOSE_PORTS_ON_LAN` so hotio's firewall allows LAN access
-3. Open `http://<server-ip>:8090` in your browser
+1. Map port 6050 in your container config (`-p 6050:6050`)
+2. Add `6050/tcp` to `VPN_EXPOSE_PORTS_ON_LAN` so hotio's firewall allows LAN access
+3. Open `http://<server-ip>:6050` in your browser
 
 The UI provides:
 - Current status (active rates, limited/unlimited badge)
@@ -173,11 +173,20 @@ traffic.conf ──→ svc-traffic (s6 service)
                    ├── crond (schedule triggers + verify watchdog every 60s)
                    └── config watcher (md5sum poll every 10s → hot-reload)
 
-svc-webui (s6 service, port 8090)
-  ├── GET /api/status    — current rates + nft counters
-  ├── GET /api/config    — full config (JSON or parsed bash)
-  ├── PUT /api/config    — save config (writes both JSON + bash)
-  └── static files       — Alpine.js SPA (embedded at build time)
+svc-webui (s6 service, port 6050)
+  ├── GET /api/status        — current rates + active rule
+  ├── GET /api/config        — full config (JSON or parsed bash)
+  ├── PUT /api/config        — save config (writes both JSON + bash)
+  ├── GET /api/stats/stream  — SSE live traffic stats (3s intervals)
+  ├── GET /api/stats/latest  — current stats snapshot
+  ├── GET /api/stats/history — ring buffer history (1h/6h/24h/72h)
+  ├── GET /api/stats/daily   — daily volume data (365 days)
+  ├── POST /api/stats/reset  — clear all statistics
+  └── static files           — Alpine.js SPA (embedded at build time)
+
+Traffic measurement:
+  wg0 rx_bytes - nft dropped bytes = actual VPN throughput
+  (nft drops excess packets; wg0 counts them before drop)
 
 nft rules are inserted into hotio's existing inet hotio table:
   output chain: upload limit before hotio's wg0 accept rule
