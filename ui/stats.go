@@ -51,6 +51,8 @@ type TrafficStats struct {
 	AvgTx24h  float64     `json:"avgTx24h"`  // Avg upload last 24h
 	TotalRx   uint64      `json:"totalRx"`   // Cumulative total download
 	TotalTx   uint64      `json:"totalTx"`   // Cumulative total upload
+	Vol6hRx   uint64      `json:"vol6hRx"`   // Download volume last 6h
+	Vol6hTx   uint64      `json:"vol6hTx"`   // Upload volume last 6h
 	Vol24hRx  uint64      `json:"vol24hRx"`  // Download volume last 24h
 	Vol24hTx  uint64      `json:"vol24hTx"`  // Upload volume last 24h
 	Ports     []PortStats `json:"ports"`     // Per-port stats
@@ -329,12 +331,15 @@ func (tc *TrafficCollector) sample() {
 	}
 
 	// Compute 24h peak, average, and volume from ring buffer.
+	// Also compute 1h and 6h volumes for accurate stats tab display.
 	// Rates are already corrected for nft drops (wg0 - dropped = actual throughput).
 	daysamples := 28800 // 24h / 3s
 	if daysamples > tc.count {
 		daysamples = tc.count
 	}
+	samples6h := 7200  // 6h / 3s
 	var maxRx, maxTx, sumRx, sumTx float64
+	var sum6hRx, sum6hTx float64
 	for i := 0; i < daysamples; i++ {
 		idx := (tc.head - 1 - i + ringSize) % ringSize
 		p := tc.history[idx]
@@ -348,6 +353,10 @@ func (tc *TrafficCollector) sample() {
 		}
 		sumRx += pRx
 		sumTx += pTx
+		if i < samples6h {
+			sum6hRx += pRx
+			sum6hTx += pTx
+		}
 	}
 	tc.latest.MaxRx24h = maxRx
 	tc.latest.MaxTx24h = maxTx
@@ -355,6 +364,8 @@ func (tc *TrafficCollector) sample() {
 		tc.latest.AvgRx24h = sumRx / float64(daysamples)
 		tc.latest.AvgTx24h = sumTx / float64(daysamples)
 	}
+	tc.latest.Vol6hRx = uint64(sum6hRx * sampleInterval.Seconds())
+	tc.latest.Vol6hTx = uint64(sum6hTx * sampleInterval.Seconds())
 	tc.latest.Vol24hRx = uint64(sumRx * sampleInterval.Seconds())
 	tc.latest.Vol24hTx = uint64(sumTx * sampleInterval.Seconds())
 	tc.mu.Unlock()

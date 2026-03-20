@@ -917,8 +917,9 @@
           </table>
         </div>
         <div style="font-size:11px;color:#6e7681;margin-top:8px;line-height:1.5">
-          VPN total includes all traffic through the tunnel (payload + TCP/IP headers + protocol overhead).
-          Service totals show application-level data only. The difference (~5-10%) is normal network overhead.
+          VPN total includes all traffic through the tunnel (payload + TCP/IP headers + WireGuard encryption + protocol overhead).
+          Service totals show application-level data only. Upload difference is typically small (~5%), but download difference can be
+          significant (~30-50%) due to BitTorrent protocol overhead (tracker, DHT, peer exchange, piece requests).
         </div>
       </div>
     </template>
@@ -967,7 +968,7 @@ function app() {
     statsHistoryData: [], // aggregated volume buckets from ring buffer (short periods)
     statsDlTooltip: { show: false, x: 0, y: 0, date: '', rows: [], total: '' },
     statsUlTooltip: { show: false, x: 0, y: 0, date: '', rows: [], total: '' },
-    liveStats: { rxRate: 0, txRate: 0, maxRx24h: 0, maxTx24h: 0, avgRx24h: 0, avgTx24h: 0, totalRx: 0, totalTx: 0, vol24hRx: 0, vol24hTx: 0 },
+    liveStats: { rxRate: 0, txRate: 0, maxRx24h: 0, maxTx24h: 0, avgRx24h: 0, avgTx24h: 0, totalRx: 0, totalTx: 0, vol6hRx: 0, vol6hTx: 0, vol24hRx: 0, vol24hTx: 0 },
     graphPeriod: '1h',
     graphShow: 'both',
     graphTotal: true, // show total line
@@ -1736,7 +1737,16 @@ function app() {
       const data = this.filteredDaily;
       if (!data.length) return { totalRx: 0, totalTx: 0, avgRx: 0, avgTx: 0, avgLabel: 'Daily Avg' };
       let totalRx = 0, totalTx = 0;
-      for (const d of data) { totalRx += d.rxBytes; totalTx += d.txBytes; }
+      // For downsampled periods, use backend-calculated volumes for accurate VPN totals
+      if (this.statsPeriod === '24h' && this.liveStats.vol24hRx > 0) {
+        totalRx = this.liveStats.vol24hRx;
+        totalTx = this.liveStats.vol24hTx;
+      } else if (this.statsPeriod === '6h' && this.liveStats.vol6hRx > 0) {
+        totalRx = this.liveStats.vol6hRx;
+        totalTx = this.liveStats.vol6hTx;
+      } else {
+        for (const d of data) { totalRx += d.rxBytes; totalTx += d.txBytes; }
+      }
       let dayCount = data.length;
       let avgLabel = 'Daily Avg';
       if (this.statsPeriod === '1h') { avgLabel = 'Avg/min'; }
@@ -1861,7 +1871,19 @@ function app() {
     // Aggregate rate samples into volume time buckets
     aggregateHistory(points, period) {
       if (!points.length) return [];
-      const sampleSec = 3; // sample interval
+      // Calculate actual sample interval from data (accounts for downsampling stride)
+      let sampleSec = 3;
+      if (points.length >= 2) {
+        const gaps = [];
+        for (let i = 1; i < Math.min(points.length, 20); i++) {
+          const gap = points[i].t - points[i-1].t;
+          if (gap > 0 && gap < 600) gaps.push(gap);
+        }
+        if (gaps.length > 0) {
+          gaps.sort((a, b) => a - b);
+          sampleSec = gaps[Math.floor(gaps.length / 2)]; // median
+        }
+      }
 
       // Bucket size in seconds — smaller = more points = smoother curves + more live feel
       let bucketSec, labelFn;
