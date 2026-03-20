@@ -14,6 +14,9 @@ Built as a layer on top of [hotio/base:alpinevpn](https://hotio.dev/containers/b
 - **VPN reconnect recovery** — watchdog detects when hotio rebuilds its nft table and re-applies rules
 - **Upload + download** — independent rate limits for each direction
 - **Burst control** — configurable burst buffer for smooth TCP throughput
+- **Traffic stats** — real-time bandwidth graphs, 72-hour ring buffer, 365-day daily volumes, per-service breakdown
+- **Per-service monitoring** — track bandwidth per qBittorrent instance via their API
+- **Stats persistence** — all traffic data survives container restarts (saved every 5 min + on shutdown)
 
 ## How it works
 
@@ -192,6 +195,17 @@ nft rules are inserted into hotio's existing inet hotio table:
   output chain: upload limit before hotio's wg0 accept rule
   input chain:  download limit before hotio's wg0 ct state accept rule
 ```
+
+## Traffic Monitoring
+
+The Stats tab shows real-time and historical bandwidth data:
+
+- **VPN-gateway total** — all traffic through the WireGuard tunnel (payload + TCP/IP headers + WireGuard encryption + protocol overhead)
+- **Per-service totals** — application-level data reported by each qBittorrent instance via its API
+
+Upload overhead is typically small (~5%). Download overhead can be significant (~30-50%) due to BitTorrent protocol traffic (tracker communication, DHT, peer exchange, piece requests) that qBittorrent does not count as downloaded payload.
+
+Stats are persisted to `/config/.traffic-stats.json` every 5 minutes and on graceful shutdown. Data includes a 72-hour ring buffer (3-second samples), 365 days of daily volumes, and per-service cumulative totals. The file is ~13 MB at maximum size and does not grow beyond that.
 
 ## Credits
 
