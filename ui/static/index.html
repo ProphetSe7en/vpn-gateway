@@ -938,7 +938,7 @@
   <div class="toast" :class="toast.type" x-show="toast.show" x-transition x-text="toast.msg"></div>
 
   <!-- Footer -->
-  <div class="footer" x-text="gwName"></div>
+  <div class="footer" x-text="gwName + (appVersion ? ' v' + appVersion : '')"></div>
 </div>
 
 <script>
@@ -960,6 +960,7 @@ function app() {
     activeDown: { active: false, rateMB: 0 },
     activeRule: { source: 'default', index: 0 },
     gwName: 'vpn-gateway',
+    appVersion: '',
     saving: false,
     showSettings: false,
     showSchedule: true,
@@ -1015,6 +1016,7 @@ function app() {
         this.activeDown = status.activeDown || { active: false, rateMB: 0 };
         this.activeRule = status.activeRule || { source: 'default', index: 0 };
         if (status.hostname) this.gwName = status.hostname;
+        if (status.version) this.appVersion = status.version;
       } catch (e) {
         this.showToast('Failed to load config: ' + e.message, 'toast-error');
       }
