@@ -15,6 +15,9 @@ import (
 	"time"
 )
 
+// Version is set at build time via ldflags
+var version = "dev"
+
 //go:embed static
 var staticFiles embed.FS
 
@@ -137,6 +140,7 @@ func (app *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"activeDown":      downRule,
 		"activeRule":      activeRule,
 		"hostname":        hostname,
+		"version":         version,
 	}
 
 	writeJSON(w, status)

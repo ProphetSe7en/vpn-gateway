@@ -3,7 +3,8 @@ FROM golang:1.24-alpine AS builder
 WORKDIR /build
 COPY ui/ .
 RUN go mod download
-RUN CGO_ENABLED=0 go build -o vpn-gateway-ui -ldflags="-s -w" .
+ARG APP_VERSION=dev
+RUN CGO_ENABLED=0 go build -o vpn-gateway-ui -ldflags="-s -w -X main.version=${APP_VERSION}" .
 
 # --- Stage 2: Runtime ---
 # Pinned digest from 2026-02-23. To update: docker pull ghcr.io/hotio/base:alpinevpn && docker inspect --format '{{.RepoDigests}}' ghcr.io/hotio/base:alpinevpn
