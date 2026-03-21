@@ -369,7 +369,7 @@
   /* Live speed */
   .speed-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
     gap: 10px;
     margin-bottom: 16px;
   }
@@ -429,6 +429,10 @@
         <div class="speed-value speed-dl" x-text="formatBytes(liveStats.vol24hRx)"></div>
       </div>
       <div class="speed-box">
+        <div class="speed-label">Volume (All)</div>
+        <div class="speed-value speed-dl" x-text="formatBytes(liveStats.totalRx)"></div>
+      </div>
+      <div class="speed-box">
         <div class="speed-label">Upload</div>
         <div class="speed-value speed-ul" x-text="formatSpeed(currentUlSpeed)"></div>
       </div>
@@ -443,6 +447,10 @@
       <div class="speed-box">
         <div class="speed-label">Volume (24h)</div>
         <div class="speed-value speed-ul" x-text="formatBytes(liveStats.vol24hTx)"></div>
+      </div>
+      <div class="speed-box">
+        <div class="speed-label">Volume (All)</div>
+        <div class="speed-value speed-ul" x-text="formatBytes(liveStats.totalTx)"></div>
       </div>
     </div>
     <div style="font-size:10px;color:#8b949e;margin-top:6px;text-align:center">
@@ -1489,7 +1497,7 @@ function app() {
             if (!this.graphPorts[pm.port]) continue;
             const pr = p.p[pm.port];
             if (pr) {
-              const val = this.graphShow === 'ul' ? pr.s : pr.r;
+              const val = this.graphShow === 'ul' ? pr.s : this.graphShow === 'dl' ? pr.r : pr.r + pr.s;
               if (val > maxRate) maxRate = val;
             }
           }
@@ -1605,7 +1613,7 @@ function app() {
 
           const portPy = (i) => {
             const pr = data[i].p && data[i].p[portNum];
-            const val = pr ? (this.graphShow === 'ul' ? pr.s : pr.r) : 0;
+            const val = pr ? (this.graphShow === 'ul' ? pr.s : this.graphShow === 'dl' ? pr.r : pr.r + pr.s) : 0;
             return pad.top + gH - (val / maxRate) * gH;
           };
 
