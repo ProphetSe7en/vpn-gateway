@@ -30,10 +30,13 @@ SAMPLE="/traffic.conf.sample"
 
 # Copy sample config on first run
 if [[ ! -f "$CONFIG" ]]; then
-    cp "$SAMPLE" "$CONFIG" 2>/dev/null || true
-    chown hotio:users "$CONFIG" 2>/dev/null || true
-    chmod 664 "$CONFIG" 2>/dev/null || true
-    log_inf "Created default traffic.conf — edit and restart to configure"
+    if cp "$SAMPLE" "$CONFIG" 2>/dev/null; then
+        chown hotio:users "$CONFIG" 2>/dev/null || true
+        chmod 664 "$CONFIG" 2>/dev/null || true
+        log_inf "Created default traffic.conf — edit and restart to configure"
+    else
+        log_err "Cannot write to /config — check mount and permissions. Using defaults."
+    fi
 fi
 
 # Upgrade config: add missing keys from sample while preserving user values

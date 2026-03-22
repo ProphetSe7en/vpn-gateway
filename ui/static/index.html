@@ -974,6 +974,7 @@ function app() {
     statsPeriod: '7d',
     statsServiceVisible: {},
     statsShowTotal: true,
+    statsGroupBy: 'day',
     statsHistoryData: [], // aggregated volume buckets from ring buffer (short periods)
     statsDlTooltip: { show: false, x: 0, y: 0, date: '', rows: [], total: '' },
     statsUlTooltip: { show: false, x: 0, y: 0, date: '', rows: [], total: '' },
@@ -1117,7 +1118,7 @@ function app() {
         for (let i = 0; i < rules.length; i++) {
           const r = rules[i];
           if (expandDays(r.days).has(day)) {
-            const mins = parseInt(r.time.split(':')[0])*60 + parseInt(r.time.split(':')[1]);
+            const mins = parseInt(r.time.split(':')[0], 10)*60 + parseInt(r.time.split(':')[1], 10);
             dayRules.push({ time: r.time, mins, down: r.down, up: r.up, label: 'R' + (i+1) });
           }
         }
@@ -1277,7 +1278,12 @@ function app() {
     },
 
     connectSSE() {
-      if (this.statsSSE || this._sseReconnecting) return;
+      if (this.statsSSE) return;
+      if (this._sseReconnectTimer) {
+        clearTimeout(this._sseReconnectTimer);
+        this._sseReconnectTimer = null;
+      }
+      this._sseReconnecting = false;
       this.statsSSE = new EventSource('/api/stats/stream');
       this._dailyPollCount = 0;
       this.statsSSE.onmessage = (e) => {
@@ -1320,7 +1326,11 @@ function app() {
         }
         if (!this._sseReconnecting) {
           this._sseReconnecting = true;
-          setTimeout(() => { this._sseReconnecting = false; this.connectSSE(); }, 3000);
+          this._sseReconnectTimer = setTimeout(() => {
+            this._sseReconnecting = false;
+            this._sseReconnectTimer = null;
+            this.connectSSE();
+          }, 3000);
         }
       };
     },
@@ -1451,7 +1461,7 @@ function app() {
         if (Object.keys(portSums).length > 0) {
           avg.p = {};
           for (const [port, ps] of Object.entries(portSums)) {
-            avg.p[parseInt(port)] = { r: ps.r / ps.n, s: ps.s / ps.n };
+            avg.p[parseInt(port, 10)] = { r: ps.r / ps.n, s: ps.s / ps.n };
           }
         }
         result.push(avg);
@@ -1700,11 +1710,11 @@ function app() {
       const cutoff = new Date(now - days * 86400000).toISOString().slice(0,10);
       const filtered = this.dailyData.filter(d => d.date >= cutoff);
 
-      // Group by period
+      // Dynamic grouping based on data points (max ~60 points)
       let groupBy = 'day';
-      if (this.statsPeriod === '30d') groupBy = 'week';
-      else if (['3m','6m','12m'].includes(this.statsPeriod)) groupBy = 'month';
-      else if (this.statsPeriod === 'All') groupBy = 'year';
+      if (filtered.length > 420) groupBy = 'month';
+      else if (filtered.length > 60) groupBy = 'week';
+      this.statsGroupBy = groupBy;
 
       if (groupBy === 'day') return filtered;
 
@@ -1720,12 +1730,9 @@ function app() {
           mon.setDate(dt.getDate() - day + 1);
           key = mon.toISOString().slice(0,10);
           label = 'W' + key.slice(5);
-        } else if (groupBy === 'month') {
+        } else {
           key = d.date.slice(0,7);
           label = d.date.slice(0,7);
-        } else {
-          key = d.date.slice(0,4);
-          label = d.date.slice(0,4);
         }
         if (!groups[key]) {
           groups[key] = { date: label, rxBytes: 0, txBytes: 0, ports: {} };
@@ -1762,9 +1769,8 @@ function app() {
       if (this.statsPeriod === '1h') { avgLabel = 'Avg/min'; }
       else if (this.statsPeriod === '6h') { avgLabel = 'Avg/5min'; }
       else if (this.statsPeriod === '24h') { avgLabel = 'Avg/15min'; }
-      else if (this.statsPeriod === '30d') { avgLabel = 'Weekly Avg'; }
-      else if (['3m','6m','12m'].includes(this.statsPeriod)) { avgLabel = 'Monthly Avg'; }
-      else if (this.statsPeriod === 'All') { avgLabel = 'Yearly Avg'; }
+      else if (this.statsGroupBy === 'month') { avgLabel = 'Monthly Avg'; }
+      else if (this.statsGroupBy === 'week') { avgLabel = 'Weekly Avg'; }
       return {
         totalRx, totalTx,
         avgRx: Math.round(totalRx / dayCount),
@@ -1928,7 +1934,7 @@ function app() {
 
       // Sort by time
       return Object.entries(buckets)
-        .sort(([a], [b]) => parseInt(a) - parseInt(b))
+        .sort(([a], [b]) => parseInt(a, 10) - parseInt(b, 10))
         .map(([, v]) => v);
     },
 
@@ -2087,7 +2093,7 @@ function app() {
         else if (d.date.length === 4) lbl = d.date;
         else if (d.date.length === 7) {
           const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          lbl = months[parseInt(d.date.slice(5)) - 1] || d.date.slice(5);
+          lbl = months[parseInt(d.date.slice(5), 10) - 1] || d.date.slice(5);
         } else if (n <= 7) lbl = d.date.slice(8);
         else lbl = d.date.slice(8) + '.' + d.date.slice(5,7);
         const labelEvery = n <= 7 ? 1 : n <= 12 ? 1 : Math.ceil(n / 10);

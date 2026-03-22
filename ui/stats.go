@@ -425,9 +425,12 @@ func (tc *TrafficCollector) Subscribe() chan TrafficStats {
 
 func (tc *TrafficCollector) Unsubscribe(ch chan TrafficStats) {
 	tc.subMu.Lock()
+	_, exists := tc.subs[ch]
 	delete(tc.subs, ch)
 	tc.subMu.Unlock()
-	close(ch)
+	if exists {
+		close(ch)
+	}
 }
 
 // GetHistory returns downsampled history for a given period

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"regexp"
@@ -182,31 +183,43 @@ func parseBashConfig(path string) (*Config, error) {
 	if v, ok := vars["SCHEDULE_ENABLED"]; ok {
 		cfg.ScheduleEnabled = v == "true"
 	}
+	parseIntWarn := func(key, val string) int {
+		n, err := strconv.Atoi(val)
+		if err != nil {
+			log.Printf("Warning: invalid value for %s=%q, using 0", key, val)
+		}
+		return n
+	}
+
 	if v, ok := vars["DEFAULT_DOWN"]; ok {
-		cfg.DefaultDown, _ = strconv.Atoi(v)
+		cfg.DefaultDown = parseIntWarn("DEFAULT_DOWN", v)
 	}
 	if v, ok := vars["DEFAULT_UP"]; ok {
-		cfg.DefaultUp, _ = strconv.Atoi(v)
+		cfg.DefaultUp = parseIntWarn("DEFAULT_UP", v)
 	}
 	if v, ok := vars["BURST_MS"]; ok {
-		cfg.BurstMs, _ = strconv.Atoi(v)
+		cfg.BurstMs = parseIntWarn("BURST_MS", v)
 	}
 	if v, ok := vars["LOG_CHANGES"]; ok {
 		cfg.LogChanges = v == "true"
 	}
 	if v, ok := vars["CONFIG_VERSION"]; ok {
-		cfg.ConfigVersion, _ = strconv.Atoi(v)
+		cfg.ConfigVersion = parseIntWarn("CONFIG_VERSION", v)
 	}
 
 	for n := 1; n <= 50; n++ {
 		timeKey := fmt.Sprintf("SCHEDULE_%d_TIME", n)
 		if timeVal, ok := vars[timeKey]; ok {
+			if !validTime.MatchString(timeVal) {
+				log.Printf("Warning: invalid time %s=%q, skipping rule", timeKey, timeVal)
+				continue
+			}
 			rule := ScheduleRule{Time: timeVal}
 			if v, ok := vars[fmt.Sprintf("SCHEDULE_%d_DOWN", n)]; ok {
-				rule.Down, _ = strconv.Atoi(v)
+				rule.Down = parseIntWarn(fmt.Sprintf("SCHEDULE_%d_DOWN", n), v)
 			}
 			if v, ok := vars[fmt.Sprintf("SCHEDULE_%d_UP", n)]; ok {
-				rule.Up, _ = strconv.Atoi(v)
+				rule.Up = parseIntWarn(fmt.Sprintf("SCHEDULE_%d_UP", n), v)
 			}
 			if v, ok := vars[fmt.Sprintf("SCHEDULE_%d_DAYS", n)]; ok {
 				rule.Days = v
@@ -366,16 +379,34 @@ func resolveActiveRule(cfg *Config) ActiveRuleInfo {
 		mins    int
 	}
 
+	// parseTimeMins safely parses "HH:MM" into minutes since midnight.
+	// Returns -1 if the format is invalid.
+	parseTimeMins := func(t string) int {
+		parts := strings.Split(t, ":")
+		if len(parts) != 2 {
+			return -1
+		}
+		h, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return -1
+		}
+		m, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return -1
+		}
+		return h*60 + m
+	}
+
 	findBest := func(dow string, maxMins int) *candidate {
 		var best *candidate
 		for i, r := range cfg.Rules {
 			if !dayMatches(dow, r.Days) {
 				continue
 			}
-			parts := strings.Split(r.Time, ":")
-			h, _ := strconv.Atoi(parts[0])
-			m, _ := strconv.Atoi(parts[1])
-			mins := h*60 + m
+			mins := parseTimeMins(r.Time)
+			if mins < 0 {
+				continue
+			}
 			if mins <= maxMins {
 				if best == nil || mins > best.mins {
 					best = &candidate{ruleIdx: i, rule: r, mins: mins}
@@ -392,10 +423,10 @@ func resolveActiveRule(cfg *Config) ActiveRuleInfo {
 			if !dayMatches(dow, r.Days) {
 				continue
 			}
-			parts := strings.Split(r.Time, ":")
-			h, _ := strconv.Atoi(parts[0])
-			m, _ := strconv.Atoi(parts[1])
-			mins := h*60 + m
+			mins := parseTimeMins(r.Time)
+			if mins < 0 {
+				continue
+			}
 			if earliest == nil || mins < earliest.mins {
 				earliest = &candidate{ruleIdx: i, rule: r, mins: mins}
 			}
@@ -410,10 +441,10 @@ func resolveActiveRule(cfg *Config) ActiveRuleInfo {
 			if !dayMatches(dow, r.Days) {
 				continue
 			}
-			parts := strings.Split(r.Time, ":")
-			h, _ := strconv.Atoi(parts[0])
-			m, _ := strconv.Atoi(parts[1])
-			mins := h*60 + m
+			mins := parseTimeMins(r.Time)
+			if mins < 0 {
+				continue
+			}
 			if mins > afterMins {
 				if next == nil || mins < next.mins {
 					next = &candidate{ruleIdx: i, rule: r, mins: mins}
