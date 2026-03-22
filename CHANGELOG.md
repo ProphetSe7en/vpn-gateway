@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.2.5
+
+### Features
+- **Dynamic stats grouping** — Volume charts auto-select day/week/month grouping based on available data (max ~60 points). 30d now shows 30 daily points instead of ~4 weekly
+- **Unraid template** — Added `unraid-template.xml` with correct GHCR icon URL
+- **Root icon** — `icon.png` in repo root for consistent Unraid/GitHub branding
+
+### Bug fixes
+- **Time parsing panic** — Malformed schedule time in manual config (e.g. missing colon) caused index out of bounds crash. Now safely skips invalid rules
+- **Silent config errors** — Invalid numeric values in `traffic.conf` (e.g. `DEFAULT_DOWN=abc`) silently became 0. Now logs warnings
+- **Channel close race** — Rapid SSE disconnections could panic on double channel close. Added existence check before closing
+- **SSE reconnect race** — Manual `connectSSE()` calls during 3s reconnect timeout were silently dropped. Now cancels pending timer and connects immediately
+- **parseInt radix** — Added explicit radix 10 to all `parseInt()` calls
+- **Config copy error** — Silent failure if `/config` is read-only on first run. Now logs error message
+
+## v1.2.4
+
+### Features
+- **Version footer** — App version displayed in UI footer (injected via build-time ldflags)
+
+## v1.2.3
+
+### Bug fixes
+- **Stats volume accuracy** — Fixed inaccurate 6h/24h volume calculations when using downsampled data
+- **Per-service graph** — Fixed graph showing only download in Both mode
+- **Volume (All)** — Added All-time period option to volume charts
+- **Traffic monitoring docs** — Added bandwidth monitoring documentation to README
+
 ## v1.2.2
 
 ### Features

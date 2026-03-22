@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>vpn-gateway</Name>
+  <Repository>ghcr.io/prophetse7en/vpn-gateway:latest</Repository>
+  <Registry>https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway</Registry>
+  <Branch>
+    <Tag>latest</Tag>
+    <TagDescription>Latest stable release</TagDescription>
+  </Branch>
+  <Network>proxynet</Network>
+  <Shell>bash</Shell>
+  <Privileged>true</Privileged>
+  <Support>https://github.com/prophetse7en/vpn-gateway/issues</Support>
+  <Project>https://github.com/prophetse7en/vpn-gateway</Project>
+  <Overview>VPN gateway with nftables bandwidth limiting, scheduling, hot-reload, and web UI. Route containers through WireGuard with per-service rate limits, time-based rules, and real-time traffic monitoring.</Overview>
+  <Category>Network:</Category>
+  <WebUI>http://[IP]:[PORT:6050]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/prophetse7en/vpn-gateway/main/unraid-template.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/prophetse7en/vpn-gateway/main/icon.png</Icon>
+  <ExtraParams>--cap-add=NET_ADMIN --sysctl net.ipv4.conf.all.src_valid_mark=1</ExtraParams>
+  <PostArgs/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>WireGuard config file in /config/wireguard/wg0.conf</Requires>
+  <Config Name="Web UI" Target="6050" Default="6050" Mode="tcp" Description="Traffic monitor web UI port" Type="Port" Display="always" Required="true" Mask="false">6050</Config>
+  <Config Name="Config Path" Target="/config" Default="/mnt/user/appdata/vpn-gateway" Mode="rw" Description="Config directory (WireGuard conf, traffic.conf, stats)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/vpn-gateway</Config>
+  <Config Name="VPN_ENABLED" Target="VPN_ENABLED" Default="true" Description="Enable WireGuard VPN" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="VPN_CONF" Target="VPN_CONF" Default="wg0" Description="WireGuard config name (without .conf)" Type="Variable" Display="always" Required="false" Mask="false">wg0</Config>
+  <Config Name="VPN_LAN_NETWORK" Target="VPN_LAN_NETWORK" Default="192.168.1.0/24" Description="Local network CIDR (comma-separated for multiple)" Type="Variable" Display="always" Required="true" Mask="false">192.168.1.0/24</Config>
+  <Config Name="VPN_EXPOSE_PORTS_ON_LAN" Target="VPN_EXPOSE_PORTS_ON_LAN" Default="" Description="Ports to expose on LAN (e.g. 7072/tcp,7073/tcp)" Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="VPN_NAMESERVERS" Target="VPN_NAMESERVERS" Default="1.1.1.1,8.8.8.8" Description="DNS servers" Type="Variable" Display="always" Required="false" Mask="false">1.1.1.1,8.8.8.8</Config>
+  <Config Name="VPN_HEALTHCHECK_ENABLED" Target="VPN_HEALTHCHECK_ENABLED" Default="true" Description="Enable VPN connectivity health check" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="TZ" Target="TZ" Default="America/New_York" Description="Container timezone" Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Description="User ID for file ownership" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Description="Group ID for file ownership" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="UMASK" Target="UMASK" Default="002" Description="File creation mask" Type="Variable" Display="advanced" Required="false" Mask="false">002</Config>
+</Container>
