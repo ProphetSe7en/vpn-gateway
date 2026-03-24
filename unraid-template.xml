@@ -7,7 +7,7 @@
     <Tag>latest</Tag>
     <TagDescription>Latest stable release</TagDescription>
   </Branch>
-  <Network>proxynet</Network>
+  <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>true</Privileged>
   <Support>https://github.com/prophetse7en/vpn-gateway/issues</Support>
@@ -15,7 +15,7 @@
   <Overview>VPN gateway with nftables bandwidth limiting, scheduling, hot-reload, and web UI. Route containers through WireGuard with per-service rate limits, time-based rules, and real-time traffic monitoring.</Overview>
   <Category>Network:</Category>
   <WebUI>http://[IP]:[PORT:6050]</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/prophetse7en/vpn-gateway/main/unraid-template.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/prophetse7en/unraid-templates/main/vpn-gateway.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/prophetse7en/vpn-gateway/main/icon.png</Icon>
   <ExtraParams>--cap-add=NET_ADMIN --sysctl net.ipv4.conf.all.src_valid_mark=1</ExtraParams>
   <PostArgs/>
@@ -30,6 +30,8 @@
   <Config Name="VPN_EXPOSE_PORTS_ON_LAN" Target="VPN_EXPOSE_PORTS_ON_LAN" Default="" Description="Ports to expose on LAN (e.g. 7072/tcp,7073/tcp)" Type="Variable" Display="always" Required="false" Mask="false"/>
   <Config Name="VPN_NAMESERVERS" Target="VPN_NAMESERVERS" Default="1.1.1.1,8.8.8.8" Description="DNS servers" Type="Variable" Display="always" Required="false" Mask="false">1.1.1.1,8.8.8.8</Config>
   <Config Name="VPN_HEALTHCHECK_ENABLED" Target="VPN_HEALTHCHECK_ENABLED" Default="true" Description="Enable VPN connectivity health check" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="VPN_PROVIDER" Target="VPN_PROVIDER" Default="generic" Description="VPN provider (generic for custom WireGuard configs, or pia for PIA)" Type="Variable" Display="always" Required="false" Mask="false">generic</Config>
+  <Config Name="VPN_PORT_REDIRECTS" Target="VPN_PORT_REDIRECTS" Default="" Description="Port redirects for services behind VPN (e.g. 52000@52000/tcp,53000@53000/tcp)" Type="Variable" Display="always" Required="false" Mask="false"/>
   <Config Name="TZ" Target="TZ" Default="America/New_York" Description="Container timezone" Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
   <Config Name="PUID" Target="PUID" Default="99" Description="User ID for file ownership" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
   <Config Name="PGID" Target="PGID" Default="100" Description="Group ID for file ownership" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
