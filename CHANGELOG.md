@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.7
+
+### Improvements
+- **TiB precision** — Volume totals now show 2 decimal places at TiB scale (e.g. "28.03 TiB" instead of "28.0 TiB"), so changes are visible without needing ~100 GiB of new traffic
+
 ## v1.2.6
 
 ### Improvements
