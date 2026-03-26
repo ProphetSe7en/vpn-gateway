@@ -1420,7 +1420,8 @@ function app() {
       let i = 0;
       let val = bytes;
       while (val >= 1024 && i < units.length - 1) { val /= 1024; i++; }
-      return val.toFixed(i > 1 ? 1 : 0) + ' ' + units[i];
+      const decimals = i >= 4 ? 2 : (i > 1 ? 1 : 0);
+      return val.toFixed(decimals) + ' ' + units[i];
     },
 
     formatSpeed(bytesPerSec) {
