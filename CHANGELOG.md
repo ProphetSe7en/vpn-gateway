@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.6
+
+### Improvements
+- **Port monitoring docs** — UI and README now clarify that per-service stats only support qBittorrent (other apps still benefit from rate limiting and total VPN stats)
+
 ## v1.2.5
 
 ### Features

@@ -15,7 +15,7 @@ Built as a layer on top of [hotio/base:alpinevpn](https://hotio.dev/containers/b
 - **Upload + download** — independent rate limits for each direction
 - **Burst control** — configurable burst buffer for smooth TCP throughput
 - **Traffic stats** — real-time bandwidth graphs, 72-hour ring buffer, 365-day daily volumes, per-service breakdown
-- **Per-service monitoring** — track bandwidth per qBittorrent instance via their API
+- **Per-service monitoring** — track bandwidth per qBittorrent instance via their WebUI API (other applications like SABnzbd are not currently supported for per-service stats, but still benefit from rate limiting and total VPN stats)
 - **Stats persistence** — all traffic data survives container restarts (saved every 5 min + on shutdown)
 
 ## How it works
@@ -201,7 +201,7 @@ nft rules are inserted into hotio's existing inet hotio table:
 The Stats tab shows real-time and historical bandwidth data:
 
 - **VPN-gateway total** — all traffic through the WireGuard tunnel (payload + TCP/IP headers + WireGuard encryption + protocol overhead)
-- **Per-service totals** — application-level data reported by each qBittorrent instance via its API
+- **Per-service totals** — application-level data reported by each qBittorrent instance via its WebUI API. Only qBittorrent is supported for per-service stats — other applications routed through the gateway (e.g. SABnzbd) are included in the VPN total but do not have individual breakdowns.
 
 Upload overhead is typically small (~5%). Download overhead can be significant (~30-50%) due to BitTorrent protocol traffic (tracker communication, DHT, peer exchange, piece requests) that qBittorrent does not count as downloaded payload.
 
