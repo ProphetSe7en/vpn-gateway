@@ -221,6 +221,13 @@ The Web UI is available at `http://your-unraid-ip:6050`.
 
 Built on [hotio/base:alpinevpn](https://hotio.dev/containers/base/) by [hotio](https://hotio.dev). All VPN functionality (WireGuard, firewall, DNS leak protection) is provided by the hotio base image. vpn-gateway only adds the bandwidth management layer.
 
+## Support
+
+For questions, help, or bug reports:
+
+- **Discord:** [`#prophetse7en-apps`](https://discordapp.com/channels/492590071455940612/1486391669384417300) on the [TRaSH Guides Discord](https://trash-guides.info/discord) (under Community Apps)
+- **GitHub:** [prophetse7en/vpn-gateway/issues](https://github.com/prophetse7en/vpn-gateway/issues)
+
 ## License
 
 MIT
