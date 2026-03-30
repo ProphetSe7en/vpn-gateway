@@ -408,8 +408,11 @@
     <div class="card-title" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
       Current Status
       <span class="status-badge" :class="statusBadgeClass" x-text="statusBadgeText"></span>
-      <span x-show="activeRule.source==='rule'" style="font-size:12px;color:#d29922"
+      <span x-show="activeRule.source==='rule' && (activeRule.down > 0 || activeRule.up > 0)" style="font-size:12px;color:#d29922"
         x-text="'↓' + activeRule.down + ' ↑' + activeRule.up + ' MB/s'"></span>
+      <span x-show="activeRule.source==='rule' && activeRule.down == 0 && activeRule.up == 0" style="font-size:12px;color:#3fb950">Unlimited</span>
+      <span x-show="activeRule.source==='default' && isLimited" style="font-size:12px;color:#d29922"
+        x-text="'↓' + (config.defaultDown || 0) + ' ↑' + (config.defaultUp || 0) + ' MB/s'"></span>
     </div>
     <div class="speed-grid">
       <div class="speed-box">
@@ -578,7 +581,7 @@
 
     <template x-if="config.scheduleEnabled">
       <div>
-        <div style="font-size:12px;color:#8b949e;margin-bottom:12px">Each rule applies from its start time until the next rule takes over.</div>
+        <div style="font-size:12px;color:#8b949e;margin-bottom:12px">Each rule applies from its start time until the next rule takes over. Set rate to 0 for unlimited.</div>
         <div class="rule-header">
           <span></span>
           <span>Time</span>

@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.2.8
+
+### Improvements
+- **Unlimited rule display** — Rules with rate 0 now show "Unlimited" in header instead of "↓0 ↑0 MB/s"
+- **Default rate in header** — When no schedule rules are active but bandwidth limiting is on, the header now shows the default rate
+- **Schedule hint** — Added "Set rate to 0 for unlimited" to schedule description
+- **Unraid Community Apps** — Added Unraid installation instructions to README
+
 ## v1.2.7
 
 ### Improvements

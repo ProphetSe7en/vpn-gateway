@@ -207,6 +207,16 @@ Upload overhead is typically small (~5%). Download overhead can be significant (
 
 Stats are persisted to `/config/.traffic-stats.json` every 5 minutes and on graceful shutdown. Data includes a 72-hour ring buffer (3-second samples), 365 days of daily volumes, and per-service cumulative totals. The file is ~13 MB at maximum size and does not grow beyond that.
 
+## Unraid
+
+**Install via Community Apps:** Search for **vpn-gateway** in the Apps tab — click Install and configure your WireGuard settings.
+
+**Or install manually:** Go to **Docker** → **Add Container**, set Repository to `ghcr.io/prophetse7en/vpn-gateway:latest`, and add the required paths, ports, and capabilities (see above).
+
+The Web UI is available at `http://your-unraid-ip:6050`.
+
+**Updating:** Click the vpn-gateway icon in the Docker tab and select **Force Update** to pull the latest image.
+
 ## Credits
 
 Built on [hotio/base:alpinevpn](https://hotio.dev/containers/base/) by [hotio](https://hotio.dev). All VPN functionality (WireGuard, firewall, DNS leak protection) is provided by the hotio base image. vpn-gateway only adds the bandwidth management layer.
