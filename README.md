@@ -36,8 +36,12 @@ docker build -t vpn-gateway:latest .
 
 ### Pull from GHCR
 
+> **Recommended:** Use a specific version tag (e.g. `v1.2.7`) instead of `latest` to avoid unexpected changes when updating. Since this container manages your VPN and network routing, an update with breaking changes could take down all containers routed through it. Pin to a version and update manually when ready.
+>
+> Available tags: [GHCR packages](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
+
 ```bash
-docker pull ghcr.io/prophetse7en/vpn-gateway:latest
+docker pull ghcr.io/prophetse7en/vpn-gateway:v1.2.7
 ```
 
 ### Run
