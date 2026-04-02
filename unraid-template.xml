@@ -5,39 +5,47 @@
   <Registry>https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway</Registry>
   <Branch>
     <Tag>latest</Tag>
-    <TagDescription>Latest stable release — auto-updates on every push</TagDescription>
+    <TagDescription>Latest stable release</TagDescription>
   </Branch>
   <Branch>
     <Tag>v1.2.7</Tag>
-    <TagDescription>Pinned stable — recommended for VPN gateways to avoid unexpected downtime</TagDescription>
+    <TagDescription>Pinned stable — recommended to avoid unexpected downtime</TagDescription>
   </Branch>
-  <Network>bridge</Network>
   <Shell>bash</Shell>
   <Privileged>true</Privileged>
   <Support>https://discordapp.com/channels/492590071455940612/1486391669384417300</Support>
   <Project>https://github.com/prophetse7en/vpn-gateway</Project>
-  <Overview>VPN gateway with nftables bandwidth limiting, scheduling, hot-reload, and web UI. Route containers through WireGuard with per-service rate limits, time-based rules, and real-time traffic monitoring.</Overview>
+  <ReadMe>https://github.com/prophetse7en/vpn-gateway#readme</ReadMe>
   <Category>Network:</Category>
-  <WebUI>http://[IP]:[PORT:6050]</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/prophetse7en/unraid-templates/main/vpn-gateway.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/prophetse7en/vpn-gateway/main/icon.png</Icon>
-  <ExtraParams>--cap-add=NET_ADMIN --sysctl net.ipv4.conf.all.src_valid_mark=1</ExtraParams>
+  <Overview>VPN gateway with nftables bandwidth limiting, scheduling, hot-reload, and web UI. Built on hotio/base:alpinevpn — all hotio VPN features (WireGuard, PIA, Proton) work out of the box. Route containers through WireGuard with per-service rate limits, time-based rules, and real-time traffic monitoring.</Overview>
+  <Requires>Click Show more settings for all VPN variables. Generic provider requires a WireGuard config in /config/wireguard/wg0.conf. PIA/Proton auto-configure with credentials.</Requires>
+  <WebUI>http://[IP]:[PORT:6050]</WebUI>
+  <ExtraParams>--hostname=vpn-gateway.internal --cap-add=NET_ADMIN --sysctl net.ipv4.conf.all.src_valid_mark=1</ExtraParams>
   <PostArgs/>
-  <DonateText/>
-  <DonateLink/>
-  <Requires>WireGuard config file in /config/wireguard/wg0.conf</Requires>
-  <Config Name="Web UI" Target="6050" Default="6050" Mode="tcp" Description="Traffic monitor web UI port" Type="Port" Display="always" Required="true" Mask="false">6050</Config>
-  <Config Name="Config Path" Target="/config" Default="/mnt/user/appdata/vpn-gateway" Mode="rw" Description="Config directory (WireGuard conf, traffic.conf, stats)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/vpn-gateway</Config>
-  <Config Name="VPN_ENABLED" Target="VPN_ENABLED" Default="true|false" Description="Enable WireGuard VPN" Type="Variable" Display="always" Required="false" Mask="false"/>
-  <Config Name="VPN_PROVIDER" Target="VPN_PROVIDER" Default="generic|proton|pia" Description="VPN provider — generic requires manual wg0.conf, proton/pia auto-configure" Type="Variable" Display="always" Required="false" Mask="false"/>
-  <Config Name="VPN_CONF" Target="VPN_CONF" Default="wg0" Description="WireGuard config name (without .conf)" Type="Variable" Display="always" Required="false" Mask="false">wg0</Config>
-  <Config Name="VPN_LAN_NETWORK" Target="VPN_LAN_NETWORK" Default="192.168.1.0/24" Description="Local network CIDR (comma-separated for multiple)" Type="Variable" Display="always" Required="true" Mask="false">192.168.1.0/24</Config>
-  <Config Name="VPN_EXPOSE_PORTS_ON_LAN" Target="VPN_EXPOSE_PORTS_ON_LAN" Default="" Description="Ports to expose on LAN (e.g. 7072/tcp,7073/tcp)" Type="Variable" Display="always" Required="false" Mask="false"/>
-  <Config Name="VPN_NAMESERVERS" Target="VPN_NAMESERVERS" Default="1.1.1.1,8.8.8.8" Description="DNS servers" Type="Variable" Display="always" Required="false" Mask="false">1.1.1.1,8.8.8.8</Config>
-  <Config Name="VPN_HEALTHCHECK_ENABLED" Target="VPN_HEALTHCHECK_ENABLED" Default="true|false" Description="Enable VPN connectivity health check" Type="Variable" Display="always" Required="false" Mask="false"/>
-  <Config Name="VPN_PORT_REDIRECTS" Target="VPN_PORT_REDIRECTS" Default="" Description="Port redirects for services behind VPN (e.g. 52000@52000/tcp,53000@53000/tcp)" Type="Variable" Display="always" Required="false" Mask="false"/>
-  <Config Name="TZ" Target="TZ" Default="America/New_York" Description="Container timezone" Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
-  <Config Name="PUID" Target="PUID" Default="99" Description="User ID for file ownership" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
-  <Config Name="PGID" Target="PGID" Default="100" Description="Group ID for file ownership" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
-  <Config Name="UMASK" Target="UMASK" Default="002" Description="File creation mask" Type="Variable" Display="advanced" Required="false" Mask="false">002</Config>
+  <Network>bridge</Network>
+  <!-- vpn-gateway specific -->
+  <Config Name="Traffic Monitor Web UI" Target="6050" Default="6050" Mode="tcp" Description="Traffic monitor and bandwidth management web UI" Type="Port" Display="always" Required="true" Mask="false"/>
+  <Config Name="Config Path" Target="/config" Default="/mnt/user/appdata/vpn-gateway" Mode="rw" Description="Config directory (WireGuard conf, traffic.conf, stats)" Type="Path" Display="always" Required="true" Mask="false"/>
+  <!-- hotio VPN variables (matching hotio template format) -->
+  <Config Name="VPN_ENABLED" Target="VPN_ENABLED" Default="true|false" Mode="" Description="Container Variable: VPN_ENABLED" Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="VPN_CONF" Target="VPN_CONF" Default="wg0" Mode="" Description="Container Variable: VPN_CONF" Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="VPN_PROVIDER" Target="VPN_PROVIDER" Default="generic|proton|pia" Mode="" Description="Container Variable: VPN_PROVIDER" Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="VPN_LAN_NETWORK" Target="VPN_LAN_NETWORK" Default="192.168.1.0/24" Mode="" Description="Container Variable: VPN_LAN_NETWORK" Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="VPN_LAN_LEAK_ENABLED" Target="VPN_LAN_LEAK_ENABLED" Default="false|true" Mode="" Description="Container Variable: VPN_LAN_LEAK_ENABLED" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="VPN_EXPOSE_PORTS_ON_LAN" Target="VPN_EXPOSE_PORTS_ON_LAN" Default="" Mode="" Description="Container Variable: VPN_EXPOSE_PORTS_ON_LAN" Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="VPN_AUTO_PORT_FORWARD" Target="VPN_AUTO_PORT_FORWARD" Default="false|true" Mode="" Description="Container Variable: VPN_AUTO_PORT_FORWARD" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="VPN_PORT_REDIRECTS" Target="VPN_PORT_REDIRECTS" Default="" Mode="" Description="Container Variable: VPN_PORT_REDIRECTS" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="VPN_HEALTHCHECK_ENABLED" Target="VPN_HEALTHCHECK_ENABLED" Default="true|false" Mode="" Description="Container Variable: VPN_HEALTHCHECK_ENABLED" Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="VPN_NAMESERVERS" Target="VPN_NAMESERVERS" Default="1.1.1.1,8.8.8.8" Mode="" Description="Container Variable: VPN_NAMESERVERS" Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="VPN_PIA_USER" Target="VPN_PIA_USER" Default="" Mode="" Description="Container Variable: VPN_PIA_USER" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="VPN_PIA_PASS" Target="VPN_PIA_PASS" Default="" Mode="" Description="Container Variable: VPN_PIA_PASS" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="VPN_PIA_PREFERRED_REGION" Target="VPN_PIA_PREFERRED_REGION" Default="" Mode="" Description="Container Variable: VPN_PIA_PREFERRED_REGION" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="VPN_PIA_DIP_TOKEN" Target="VPN_PIA_DIP_TOKEN" Default="" Mode="" Description="Container Variable: VPN_PIA_DIP_TOKEN" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="VPN_PIA_PORT_FORWARD_PERSIST" Target="VPN_PIA_PORT_FORWARD_PERSIST" Default="false|true" Mode="" Description="Container Variable: VPN_PIA_PORT_FORWARD_PERSIST" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="TZ" Target="TZ" Default="America/New_York" Mode="" Description="Container Variable: TZ" Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="Container Variable: PUID" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Container Variable: PGID" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="UMASK" Target="UMASK" Default="002" Mode="" Description="Container Variable: UMASK" Type="Variable" Display="advanced" Required="false" Mask="false"/>
 </Container>
