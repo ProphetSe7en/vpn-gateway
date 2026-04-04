@@ -2137,22 +2137,21 @@ function app() {
       const d = data[closest];
       const byteKey = dir === 'dl' ? 'rxBytes' : 'txBytes';
       const ports = (this.config.ports || []).filter(pm => this.statsServiceVisible[pm.port] !== false);
-      let totalBytes = 0;
+      const vpnTotal = d[byteKey] || 0;
 
       const rows = ports.map((pm) => {
         const portIdx = this.config.ports.findIndex(p => p.port === pm.port);
         const pb = d.ports && d.ports[pm.port];
         const val = pb ? (pb[byteKey] || 0) : 0;
-        totalBytes += val;
         return { name: pm.name, color: this.portColor(portIdx), val };
       });
 
-      // Add percentages
+      // Add percentages (relative to VPN total)
       const rowsWithPct = rows.map(r => ({
         name: r.name,
         color: r.color,
         value: this.formatBytes(r.val),
-        pct: totalBytes > 0 ? Math.round((r.val / totalBytes) * 100) : 0
+        pct: vpnTotal > 0 ? Math.round((r.val / vpnTotal) * 100) : 0
       }));
 
       this[tipKey] = {
@@ -2160,7 +2159,7 @@ function app() {
         x: Math.min(mx + 12, rect.width - 200),
         y: Math.max(my - 40 - (rows.length + 1) * 18, 0),
         date: d.date,
-        total: this.formatBytes(totalBytes),
+        total: this.formatBytes(vpnTotal),
         rows: rowsWithPct
       };
     },
