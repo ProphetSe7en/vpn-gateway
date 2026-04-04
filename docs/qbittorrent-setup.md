@@ -114,7 +114,8 @@ services:
     image: ghcr.io/hotio/qbittorrent:latest
     container_name: qBit-movies
     network_mode: "container:vpn-gateway"
-    # No ports: section — ports are mapped on vpn-gateway
+    # No ports — they are mapped on vpn-gateway
+    # No extra parameters — VPN is handled by the gateway
     environment:
       - VPN_ENABLED=false
       - WEBUI_PORTS=7075/tcp
@@ -127,7 +128,7 @@ services:
       - /path/to/data:/data
 ```
 
-> **Key points:** `ports` only on vpn-gateway, `network_mode: "container:vpn-gateway"` on qBit, `VPN_ENABLED=false` on qBit, and `WEBUI_PORTS=7075/tcp` matching the gateway port mapping.
+> **Notice how minimal the qBittorrent config is.** No ports, no VPN config, no extra parameters. Just `network_mode`, `VPN_ENABLED=false`, `WEBUI_PORTS`, and your standard paths. All VPN and port handling is done by vpn-gateway.
 
 ## Multiple qBittorrent instances
 
