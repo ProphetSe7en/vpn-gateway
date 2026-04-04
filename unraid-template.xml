@@ -8,7 +8,7 @@
     <TagDescription>Latest stable release</TagDescription>
   </Branch>
   <Branch>
-    <Tag>v1.2.7</Tag>
+    <Tag>v1.2.10</Tag>
     <TagDescription>Pinned stable — recommended to avoid unexpected downtime</TagDescription>
   </Branch>
   <Shell>bash</Shell>
