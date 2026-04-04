@@ -238,7 +238,7 @@ Route one or more qBittorrent containers through the VPN gateway so all torrent 
 
 ## Unraid
 
-**Install via Community Apps:** Search for **vpn-gateway** in the Apps tab — click Install and configure your WireGuard settings.
+**Install via Community Apps:** Search for **vpn gateway** (without hyphen) in the Apps tab — click Install and configure your WireGuard settings.
 
 **Or install manually:** Go to **Docker** → **Add Container**, set Repository to `ghcr.io/prophetse7en/vpn-gateway:latest`, and add the required paths, ports, and capabilities (see above).
 
