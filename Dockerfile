@@ -18,7 +18,11 @@ COPY traffic.conf.sample /traffic.conf.sample
 COPY --from=builder /build/vpn-gateway-ui /vpn-gateway-ui
 
 RUN chmod +x /usr/local/bin/nft-apply \
+             /usr/local/bin/healthcheck \
              /etc/s6-overlay/s6-rc.d/svc-traffic/run \
              /etc/s6-overlay/s6-rc.d/svc-traffic/finish \
              /etc/s6-overlay/s6-rc.d/svc-webui/run \
              /vpn-gateway-ui
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD /usr/local/bin/healthcheck

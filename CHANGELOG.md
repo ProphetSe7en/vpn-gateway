@@ -2,6 +2,9 @@
 
 ## v1.2.9
 
+### Features
+- **Built-in Docker healthcheck** — Verifies WireGuard tunnel (peer handshake) and web UI (`/api/stats/latest`) every 30s. No more need for `--health-cmd` in Extra Parameters
+
 ### Improvements
 - **Unraid template: qBit port** — Template now includes a qBittorrent Web UI port field (7075) so users see it during install
 
