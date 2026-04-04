@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.9
+
+### Improvements
+- **Unraid template: qBit port** — Template now includes a qBittorrent Web UI port field (7075) so users see it during install
+
 ## v1.2.8
 
 ### Improvements

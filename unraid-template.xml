@@ -27,6 +27,7 @@
   <Network>bridge</Network>
   <!-- vpn-gateway specific -->
   <Config Name="Traffic Monitor Web UI" Target="6050" Default="6050" Mode="tcp" Description="Traffic monitor and bandwidth management web UI" Type="Port" Display="always" Required="true" Mask="false"/>
+  <Config Name="qBittorrent Web UI" Target="7075" Default="7075" Mode="tcp" Description="qBittorrent Web UI port — must match WEBUI_PORTS on the qBit container and be included in VPN_EXPOSE_PORTS_ON_LAN. Add one port per qBit instance." Type="Port" Display="always" Required="false" Mask="false"/>
   <Config Name="Config Path" Target="/config" Default="/mnt/user/appdata/vpn-gateway" Mode="rw" Description="Config directory (WireGuard conf, traffic.conf, stats)" Type="Path" Display="always" Required="true" Mask="false"/>
   <!-- hotio VPN variables (matching hotio template format) -->
   <Config Name="VPN_ENABLED" Target="VPN_ENABLED" Default="true|false" Mode="" Description="Container Variable: VPN_ENABLED" Type="Variable" Display="always" Required="false" Mask="false"/>
