@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.10
+
+### Bug fixes
+- **Stats tooltip showed 0** — Tooltip on Stats tab download/upload charts showed "Total 0" when only VPN total was visible (no qBit ports configured or toggled off). Was summing port values instead of using actual VPN total.
+
 ## v1.2.9
 
 ### Features
