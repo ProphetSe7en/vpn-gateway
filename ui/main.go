@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -120,15 +119,6 @@ func (app *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	// Resolve which rule is currently active
 	activeRule := resolveActiveRule(cfg)
 
-	hostname, _ := os.Hostname()
-	if hostname == "" {
-		hostname = "vpn-gateway"
-	}
-	// Strip .internal suffix if present
-	if idx := strings.Index(hostname, "."); idx > 0 {
-		hostname = hostname[:idx]
-	}
-
 	status := map[string]any{
 		"enabled":         cfg.Enabled,
 		"scheduleEnabled": cfg.ScheduleEnabled,
@@ -139,7 +129,7 @@ func (app *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"activeUp":        upRule,
 		"activeDown":      downRule,
 		"activeRule":      activeRule,
-		"hostname":        hostname,
+		"hostname":        "VPN Gateway",
 		"version":         version,
 	}
 

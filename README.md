@@ -36,12 +36,12 @@ docker build -t vpn-gateway:latest .
 
 ### Pull from GHCR
 
-> **Recommended:** Use a specific version tag (e.g. `v1.2.7`) instead of `latest` to avoid unexpected changes when updating. Since this container manages your VPN and network routing, an update with breaking changes could take down all containers routed through it. Pin to a version and update manually when ready.
->
-> Available tags: [GHCR packages](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
+> **⚠️ Use a pinned version tag, not `latest`.** This container manages your VPN and network routing — if an update introduces breaking changes, every container routed through it (qBittorrent, etc.) loses connectivity and won't recover until vpn-gateway is fixed or rolled back. Pin to a version and update manually when you're ready.
+
+**Latest version: `v1.2.10`** — [all tags](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
 
 ```bash
-docker pull ghcr.io/prophetse7en/vpn-gateway:v1.2.7
+docker pull ghcr.io/prophetse7en/vpn-gateway:v1.2.10
 ```
 
 ### Run
@@ -59,7 +59,7 @@ docker run -d \
   -p 6050:6050 \
   -e VPN_EXPOSE_PORTS_ON_LAN=6050/tcp \
   -e PRIVNET=192.168.86.0/24 \
-  ghcr.io/prophetse7en/vpn-gateway:latest
+  ghcr.io/prophetse7en/vpn-gateway:v1.2.10
 ```
 
 On first start, a default `traffic.conf` is created in `/config/` with all options documented.
@@ -240,11 +240,11 @@ Route one or more qBittorrent containers through the VPN gateway so all torrent 
 
 **Install via Community Apps:** Search for **vpn gateway** (without hyphen) in the Apps tab — click Install and configure your WireGuard settings.
 
-**Or install manually:** Go to **Docker** → **Add Container**, set Repository to `ghcr.io/prophetse7en/vpn-gateway:latest`, and add the required paths, ports, and capabilities (see above).
+**Or install manually:** Go to **Docker** → **Add Container**, set Repository to `ghcr.io/prophetse7en/vpn-gateway:v1.2.10`, and add the required paths, ports, and capabilities (see above).
 
 The Web UI is available at `http://your-unraid-ip:6050`.
 
-**Updating:** Click the vpn-gateway icon in the Docker tab and select **Force Update** to pull the latest image.
+**Updating:** Change the version tag in the Repository field to the new version, then click **Apply**. Do not use `latest` — see [Pull from GHCR](#pull-from-ghcr) for why.
 
 ## Credits
 
