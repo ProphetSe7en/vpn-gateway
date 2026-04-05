@@ -1,15 +1,15 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>vpn-gateway</Name>
-  <Repository>ghcr.io/prophetse7en/vpn-gateway:latest</Repository>
+  <Repository>ghcr.io/prophetse7en/vpn-gateway:v1.2.10</Repository>
   <Registry>https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway</Registry>
   <Branch>
-    <Tag>latest</Tag>
-    <TagDescription>Latest stable release</TagDescription>
+    <Tag>v1.2.10</Tag>
+    <TagDescription>Pinned stable (recommended) — update manually when ready</TagDescription>
   </Branch>
   <Branch>
-    <Tag>v1.2.10</Tag>
-    <TagDescription>Pinned stable — recommended to avoid unexpected downtime</TagDescription>
+    <Tag>latest</Tag>
+    <TagDescription>Auto-updates — may cause downtime for containers routed through the gateway</TagDescription>
   </Branch>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>

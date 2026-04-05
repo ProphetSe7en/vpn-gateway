@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.11
+
+### Bug fixes
+- **UI showed container ID as title** — Users without `--hostname` set saw a hex container ID in the header instead of the product name. Now always shows "VPN Gateway"
+
+### Improvements
+- **Pinned version as default** — Unraid template now defaults to a pinned version tag instead of `latest`, preventing unexpected updates that can take down containers routed through the gateway
+- **README uses pinned tags** — All examples and install instructions use pinned version tags with a prominent warning against using `latest`
+
 ## v1.2.10
 
 ### Bug fixes
