@@ -1,11 +1,18 @@
 #!/command/with-contenv bash
-# Cleanup nft limit rules when svc-traffic stops
+# Cleanup nft limit rules when svc-traffic stops.
+# Also prevents restart loops: if run exits unexpectedly, write a "down"
+# file so s6 does not restart the service in a tight loop.
 
 if [[ -f /etc/s6-overlay/scripts/bash-functions ]]; then
     source /etc/s6-overlay/scripts/bash-functions
 else
     log_inf() { echo "[INF] [svc-traffic] $*"; }
+    log_err() { echo "[ERR] [svc-traffic] $*" >&2; }
 fi
+
+# $1 = exit code of run, $2 = signal that killed it (or 256 if normal exit)
+EXIT_CODE="${1:-0}"
+EXIT_SIGNAL="${2:-256}"
 
 NFT_TABLE="inet hotio"
 
@@ -20,3 +27,16 @@ for pair in "output:traffic-limit-up" "input:traffic-limit-down"; do
 done
 
 log_inf "Bandwidth limit rules removed"
+
+# If run exited from SIGTERM (signal 15), it's a normal s6 shutdown — don't block
+if [[ "$EXIT_SIGNAL" == "15" || "$EXIT_SIGNAL" == "SIGTERM" ]]; then
+    log_inf "Clean shutdown"
+    exit 0
+fi
+
+# Unexpected exit — prevent s6 from restarting in a tight loop.
+# Write "down" file so s6-supervise stops trying to restart run.
+if [[ "$EXIT_CODE" != "0" ]]; then
+    log_err "Unexpected exit (code=$EXIT_CODE, signal=$EXIT_SIGNAL) — disabling restart"
+    touch /run/service/svc-traffic/down 2>/dev/null || true
+fi

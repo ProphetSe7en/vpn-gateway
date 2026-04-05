@@ -38,7 +38,7 @@ docker build -t vpn-gateway:latest .
 
 > **⚠️ Use a pinned version tag, not `latest`.** This container manages your VPN and network routing — if an update introduces breaking changes, every container routed through it (qBittorrent, etc.) loses connectivity and won't recover until vpn-gateway is fixed or rolled back. Pin to a version and update manually when you're ready.
 
-**Latest version: `v1.2.10`** — [all tags](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
+**Latest version: `v1.2.12`** — [all tags](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
 
 ```bash
 docker pull ghcr.io/prophetse7en/vpn-gateway:v1.2.10

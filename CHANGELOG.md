@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.12
+
+### Bug fixes
+- **Slow container shutdown (10s → 3s)** — svc-traffic's EXIT trap ran `sleep infinity` on every exit, including normal shutdowns. Docker waited the full 10s stop timeout before force-killing. Now exits cleanly on SIGTERM with proper nftables cleanup
+
+### Improvements
+- **Setup guide: Extra Parameters cleanup** — Added warning to remove `--hostname` and `--cap-add=NET_ADMIN` from qBittorrent containers when using container network mode. `--hostname` prevents startup, `NET_ADMIN` is only needed on vpn-gateway
+- **Setup guide: restart troubleshooting** — Documented Docker limitation where dependent containers lose network after gateway restart. Added Unraid workaround (force recreate via dummy edit) and Docker Compose `depends_on` solution
+
 ## v1.2.11
 
 ### Bug fixes
