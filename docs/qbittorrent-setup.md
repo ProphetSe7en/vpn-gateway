@@ -44,10 +44,11 @@ The other VPN variables (`VPN_ENABLED`, `VPN_CONF`, `VPN_PROVIDER`, etc.) config
 
 ### Step 3: Remove port mapping and disable VPN on qBittorrent
 
-Since qBittorrent shares the vpn-gateway network, two changes on the qBit container are required:
+Since qBittorrent shares the vpn-gateway network, these changes on the qBit container are required:
 
 1. **Remove the host port mapping** — it does nothing in container network mode and can cause conflicts
 2. **Set `VPN_ENABLED=false`** — the vpn-gateway handles VPN, not qBittorrent. Having VPN enabled on both will prevent qBittorrent from starting. You can leave the other VPN variables as they are, or remove them entirely — both work fine.
+3. **Clean up Extra Parameters** — remove `--hostname` and `--cap-add=NET_ADMIN` if present. The hostname is inherited from the vpn-gateway container (setting it on qBit will prevent it from starting), and `NET_ADMIN` is only needed on vpn-gateway which handles the VPN.
 
 ![Remove qBittorrent host port](images/qbit-remove-port.png)
 
@@ -154,11 +155,31 @@ All qBit ports go in `VPN_EXPOSE_PORTS_ON_LAN`:
 
 **qBittorrent won't start:**
 - Remove all port mappings from the qBit container — they conflict with container network mode
+- Remove `--hostname` and `--cap-add=NET_ADMIN` from Extra Parameters — not needed in container network mode
 - Set `VPN_ENABLED=false` on qBit (or remove VPN variables entirely) — the gateway handles VPN
 
 **Multiple instances conflict:**
 - Each qBit instance must have a different `WEBUI_PORTS` value
 - You cannot have two containers both listening on the same port on the same network stack
+
+**qBittorrent won't start after vpn-gateway update/restart:**
+
+When vpn-gateway is stopped or recreated, all containers sharing its network lose connectivity and won't recover on their own — Docker does not automatically restore the network stack for dependent containers. This is a Docker limitation, not a vpn-gateway issue.
+
+This is why **pinned version tags are strongly recommended** (see the warning at the top of the main README). Only update vpn-gateway when you're ready to deal with restarting dependent containers.
+
+On **Unraid**, a simple container restart is usually not enough. You need to force Docker to recreate the network link:
+1. Edit the qBittorrent container in the Unraid UI
+2. Make a dummy change (e.g., change a character in the description, then change it back)
+3. Click Apply — this forces Unraid to recreate the container with a fresh network attachment
+
+On **Docker Compose**, use `depends_on` with a health check condition so qBit waits for vpn-gateway to be healthy before starting:
+```yaml
+qbittorrent:
+  depends_on:
+    vpn-gateway:
+      condition: service_healthy
+```
 
 **Port forwarding not working:**
 - Verify `VPN_PORT_REDIRECTS` format: `vpn_port@container_port/tcp`

@@ -10,18 +10,18 @@ else
     log_err() { echo "[ERR] [svc-traffic] $*" >&2; }
 fi
 
-# Safety net: clean up crond + sleep forever on unexpected exit.
-# Prevents s6 from restarting us in a tight loop.
+# Crond cleanup on exit. The finish script handles nft rule removal.
+# No sleep-infinity trap — s6-rc type is "longrun" so s6 manages restarts
+# via the finish script's exit code (see s6-overlay docs).
 CROND_PID_FILE="/tmp/traffic-crond.pid"
-cleanup_and_sleep() {
+cleanup() {
     if [[ -f "$CROND_PID_FILE" ]]; then
         kill "$(cat "$CROND_PID_FILE")" 2>/dev/null || true
         rm -f "$CROND_PID_FILE"
     fi
-    log_err "Unexpected exit -- sleeping to prevent restart loop"
-    exec sleep infinity
+    log_inf "Cleanup complete"
 }
-trap cleanup_and_sleep EXIT
+trap cleanup EXIT
 
 umask "${UMASK}"
 
@@ -155,10 +155,12 @@ start_crond
 
 # Config hot-reload: monitor traffic.conf for changes every 10 seconds.
 # When the file changes, re-read config and apply new rates without restart.
+# Uses sleep & wait instead of plain sleep so SIGTERM is handled promptly.
 log_inf "Config watcher active — changes to traffic.conf apply within 10s"
 CONFIG_HASH=$(md5sum "$CONFIG" 2>/dev/null | awk '{print $1}')
-while true; do
-    sleep 10
+while [[ "$SHUTDOWN_REQUESTED" != "true" ]]; do
+    sleep 10 &
+    wait $! 2>/dev/null || break
     NEW_HASH=$(md5sum "$CONFIG" 2>/dev/null | awk '{print $1}')
     if [[ "$NEW_HASH" != "$CONFIG_HASH" ]]; then
         log_inf "Config change detected — reloading"
