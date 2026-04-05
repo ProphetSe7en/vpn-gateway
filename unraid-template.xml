@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>vpn-gateway</Name>
-  <Repository>ghcr.io/prophetse7en/vpn-gateway:v1.2.13</Repository>
+  <Repository>ghcr.io/prophetse7en/vpn-gateway:v1.2.14</Repository>
   <Registry>https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway</Registry>
   <Branch>
-    <Tag>v1.2.13</Tag>
+    <Tag>v1.2.14</Tag>
     <TagDescription>Pinned stable (recommended) — update manually when ready</TagDescription>
   </Branch>
   <Branch>

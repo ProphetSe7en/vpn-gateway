@@ -59,6 +59,7 @@ func main() {
 	mux.HandleFunc("GET /api/stats/stream", app.handleStatsSSE)
 	mux.HandleFunc("GET /api/stats/history", app.handleStatsHistory)
 	mux.HandleFunc("GET /api/stats/latest", app.handleStatsLatest)
+	mux.HandleFunc("GET /api/stats/widget", app.handleStatsWidget)
 	mux.HandleFunc("GET /api/stats/daily", app.handleStatsDailyVolume)
 	mux.HandleFunc("POST /api/stats/reset", app.handleStatsReset)
 
