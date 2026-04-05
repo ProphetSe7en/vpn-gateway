@@ -463,7 +463,7 @@
 
   <!-- Tabs -->
   <div class="tabs">
-    <div class="tab" :class="tab==='config' && 'tab-active'" @click="tab='config'">Config</div>
+    <div class="tab" :class="tab==='config' && 'tab-active'" @click="switchTab('config')">Config</div>
     <div class="tab" :class="tab==='traffic' && 'tab-active'" @click="switchTab('traffic')">Traffic</div>
     <div class="tab" :class="tab==='stats' && 'tab-active'" @click="switchTab('stats')">Stats</div>
   </div>
@@ -947,7 +947,7 @@
 <script>
 function app() {
   return {
-    tab: 'config',
+    tab: localStorage.getItem('vpn-tab') || 'config',
     config: {
       enabled: true,
       scheduleEnabled: false,
@@ -992,6 +992,9 @@ function app() {
 
     async init() {
       await this.reload();
+      // Load data for remembered tab
+      if (this.tab === 'traffic') { this.fetchHistory(); this.fetchDaily(); }
+      if (this.tab === 'stats') { this.fetchStatsData(); }
       // Poll status every 5s
       this.pollTimer = setInterval(() => this.fetchStatus(), 5000);
       // Always connect SSE for live speed display
@@ -1264,6 +1267,7 @@ function app() {
 
     switchTab(t) {
       this.tab = t;
+      localStorage.setItem('vpn-tab', t);
       if (t === 'traffic') {
         this.fetchHistory();
         this.fetchDaily();

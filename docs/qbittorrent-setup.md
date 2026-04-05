@@ -168,10 +168,11 @@ When vpn-gateway is stopped or recreated, all containers sharing its network los
 
 This is why **pinned version tags are strongly recommended** (see the warning at the top of the main README). Only update vpn-gateway when you're ready to deal with restarting dependent containers.
 
-On **Unraid**, a simple container restart is usually not enough. You need to force Docker to recreate the network link:
-1. Edit the qBittorrent container in the Unraid UI
-2. Make a dummy change (e.g., change a character in the description, then change it back)
-3. Click Apply — this forces Unraid to recreate the container with a fresh network attachment
+On **Unraid**, a simple container restart is usually not enough. You need to force Docker to recreate the network link. Two options:
+
+**Option A: [ContainerNetwork AutoFix](https://github.com/buxxdev/containernetwork-autofix)** (recommended) — Unraid plugin that automatically detects when the master container restarts and recreates dependent containers. Install via Apps tab, set master container to `vpn-gateway`, and it handles everything automatically.
+
+**Option B: Manual recreate** — Edit the qBittorrent container in the Unraid UI, make a dummy change (e.g., change a character in the description, then change it back), and click Apply. This forces Unraid to recreate the container with a fresh network attachment.
 
 On **Docker Compose**, use `depends_on` with a health check condition so qBit waits for vpn-gateway to be healthy before starting:
 ```yaml

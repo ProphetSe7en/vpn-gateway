@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.13
+
+### Improvements
+- **UI remembers last tab** — Selected tab (Config/Traffic/Stats) persists across page reloads via localStorage
+
 ## v1.2.12
 
 ### Bug fixes
