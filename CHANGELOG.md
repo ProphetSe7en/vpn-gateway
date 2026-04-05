@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.14
+
+### Features
+- **Homepage widget endpoint** — New `/api/stats/widget` returns pre-formatted stats for [Homepage](https://gethomepage.dev/) dashboards. Fields: `dlSpeed`, `ulSpeed`, `totalDl`, `totalUl`, `dailyDl`, `dailyUl`. Values are human-readable (e.g., "23.0 MB/s", "6.95 TB") — no client-side formatting needed.
+
 ## v1.2.13
 
 ### Improvements

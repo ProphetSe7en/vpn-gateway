@@ -925,6 +925,43 @@ func (app *App) handleStatsLatest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, app.traffic.GetLatest())
 }
 
+// handleStatsWidget returns pre-formatted stats for Homepage/dashboard widgets
+func (app *App) handleStatsWidget(w http.ResponseWriter, r *http.Request) {
+	s := app.traffic.GetLatest()
+	writeJSON(w, map[string]string{
+		"dlSpeed":  formatRate(s.RxRate),
+		"ulSpeed":  formatRate(s.TxRate),
+		"totalDl":  formatBytes(s.TotalRx),
+		"totalUl":  formatBytes(s.TotalTx),
+		"dailyDl":  formatBytes(s.Vol24hRx),
+		"dailyUl":  formatBytes(s.Vol24hTx),
+	})
+}
+
+func formatRate(bytesPerSec float64) string {
+	mbps := bytesPerSec / 1_000_000
+	if mbps >= 1000 {
+		return fmt.Sprintf("%.1f GB/s", mbps/1000)
+	}
+	if mbps >= 1 {
+		return fmt.Sprintf("%.1f MB/s", mbps)
+	}
+	return fmt.Sprintf("%.0f KB/s", bytesPerSec/1000)
+}
+
+func formatBytes(b uint64) string {
+	switch {
+	case b >= 1_000_000_000_000:
+		return fmt.Sprintf("%.2f TB", float64(b)/1_000_000_000_000)
+	case b >= 1_000_000_000:
+		return fmt.Sprintf("%.2f GB", float64(b)/1_000_000_000)
+	case b >= 1_000_000:
+		return fmt.Sprintf("%.1f MB", float64(b)/1_000_000)
+	default:
+		return fmt.Sprintf("%.0f KB", float64(b)/1000)
+	}
+}
+
 // Reset clears all traffic statistics
 func (tc *TrafficCollector) Reset() {
 	tc.mu.Lock()

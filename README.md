@@ -38,7 +38,7 @@ docker build -t vpn-gateway:latest .
 
 > **⚠️ Use a pinned version tag, not `latest`.** This container manages your VPN and network routing — if an update introduces breaking changes, every container routed through it (qBittorrent, etc.) loses connectivity and won't recover until vpn-gateway is fixed or rolled back. Pin to a version and update manually when you're ready.
 
-**Latest version: `v1.2.13`** — [all tags](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
+**Latest version: `v1.2.14`** — [all tags](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
 
 ```bash
 docker pull ghcr.io/prophetse7en/vpn-gateway:v1.2.10
@@ -245,6 +245,47 @@ Route one or more qBittorrent containers through the VPN gateway so all torrent 
 The Web UI is available at `http://your-unraid-ip:6050`.
 
 **Updating:** Change the version tag in the Repository field to the new version, then click **Apply**. Do not use `latest` — see [Pull from GHCR](#pull-from-ghcr) for why.
+
+## Homepage Widget
+
+vpn-gateway has a built-in widget endpoint for [Homepage](https://gethomepage.dev/) dashboards. Add this to your `services.yaml`:
+
+```yaml
+- VPN Gateway:
+    icon: mdi-vpn
+    href: http://YOUR_IP:6050
+    widget:
+        type: customapi
+        url: http://vpn-gateway:6050/api/stats/widget
+        refreshInterval: 10000
+        display: block
+        mappings:
+          - field: dlSpeed
+            label: DL Speed
+          - field: ulSpeed
+            label: UL Speed
+          - field: totalDl
+            label: Total DL
+          - field: totalUl
+            label: Total UL
+```
+
+Replace `YOUR_IP` with your server IP, and `vpn-gateway` in the widget URL with the container hostname (or IP if Homepage is on a different Docker network).
+
+### Available fields
+
+| Field | Example | Description |
+|-------|---------|-------------|
+| `dlSpeed` | `45.2 MB/s` | Current download speed |
+| `ulSpeed` | `12.8 MB/s` | Current upload speed |
+| `totalDl` | `2.35 TB` | Total downloaded (since stats reset) |
+| `totalUl` | `8.71 TB` | Total uploaded |
+| `dailyDl` | `124.5 GB` | Downloaded in the last 24 hours |
+| `dailyUl` | `48.3 GB` | Uploaded in the last 24 hours |
+
+All values are pre-formatted — no `scale`, `suffix`, or `format` needed in Homepage. Pick the fields you want by adding or removing entries from `mappings`.
+
+---
 
 ## Credits
 
