@@ -31,6 +31,28 @@ type PortMapping struct {
 	Port  int    `json:"port"`            // WebUI port (e.g. 7073)
 	Name  string `json:"name"`            // Display name (e.g. qBit-movies)
 	Color string `json:"color,omitempty"` // Custom hex color (e.g. #f0883e)
+
+	// Type selects which ServicePoller handles this entry. Empty string is
+	// treated as "qbittorrent" for backward compatibility with pre-v1.3.0
+	// configs. Known values: "qbittorrent", "sabnzbd", "dispatcharr".
+	Type string `json:"type,omitempty"`
+
+	// APIKey is used by services that authenticate with a static key (SAB).
+	// It is omitted from JSON when empty so existing qBit-only configs stay
+	// byte-identical when re-serialised.
+	APIKey string `json:"apiKey,omitempty"`
+
+	// Username / Password are used by services with no API key mechanism
+	// (Dispatcharr v0.x authenticates via POST /api/accounts/token/ using
+	// admin credentials — see docs/multi-service-monitoring-plan.md for the
+	// security implications of storing the Dispatcharr password in config).
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+
+	// ShowDetails enables the service-specific detail view on the Traffic
+	// tab (e.g. active Dispatcharr streams with channel names). Only used
+	// by pollers that implement ServiceDetailer — ignored otherwise.
+	ShowDetails bool `json:"showDetails,omitempty"`
 }
 
 type Config struct {

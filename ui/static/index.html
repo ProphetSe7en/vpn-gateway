@@ -322,6 +322,38 @@
   .toast-success { background: #1a3a2a; color: #3fb950; border: 1px solid #2ea043; }
   .toast-error { background: #3a1a1a; color: #f85149; border: 1px solid #f85149; }
 
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+  }
+  .modal {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px;
+    max-width: 420px;
+    width: calc(100% - 32px);
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5);
+  }
+  .modal-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #c9d1d9;
+    margin-bottom: 12px;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+  }
+
   /* Tabs */
   .tabs {
     display: flex;
@@ -463,9 +495,9 @@
 
   <!-- Tabs -->
   <div class="tabs">
-    <div class="tab" :class="tab==='config' && 'tab-active'" @click="switchTab('config')">Config</div>
     <div class="tab" :class="tab==='traffic' && 'tab-active'" @click="switchTab('traffic')">Traffic</div>
     <div class="tab" :class="tab==='stats' && 'tab-active'" @click="switchTab('stats')">Stats</div>
+    <div class="tab" :class="tab==='config' && 'tab-active'" @click="switchTab('config')">Config</div>
   </div>
 
   <!-- ==================== CONFIG TAB ==================== -->
@@ -522,23 +554,56 @@
         </div>
         <!-- Port Mappings -->
         <div style="margin-top:16px;padding-top:16px;border-top:1px solid #30363d">
-          <div style="font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:8px">Port Monitoring</div>
+          <div style="font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:8px">Service Monitoring</div>
           <div style="font-size:12px;color:#8b949e;margin-bottom:10px">
-            Add qBittorrent WebUI ports for per-instance traffic stats in the Traffic tab. Stats are fetched via the qBittorrent API — other applications (SABnzbd, etc.) are not supported.
+            Track per-service traffic on the Traffic tab. Pick the service type, fill in credentials if required, and hit Test to verify before saving. qBittorrent needs no authentication. SABnzbd uses its API key. Dispatcharr uses its admin username/password (JWT authentication).
           </div>
           <template x-for="(pm, idx) in config.ports" :key="idx">
-            <div style="display:flex;gap:8px;margin-bottom:6px;align-items:center">
-              <input type="color" :value="pm.color || defaultPortColors[idx % defaultPortColors.length]"
-                @input="pm.color=$event.target.value"
-                style="width:32px;height:32px;border:1px solid #30363d;border-radius:4px;background:#0d1117;cursor:pointer;padding:2px">
-              <input type="number" min="1" max="65535" x-model.number="pm.port" placeholder="Port"
-                style="width:80px;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
-              <input type="text" x-model="pm.name" placeholder="Name (e.g. qBit-movies)"
-                style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
-              <button class="btn-danger" @click="config.ports.splice(idx,1)" title="Remove">&times;</button>
+            <div style="border:1px solid #30363d;border-radius:6px;padding:8px;margin-bottom:8px;background:#0d1117">
+              <div style="display:flex;gap:8px;align-items:center">
+                <input type="color" :value="pm.color || defaultPortColors[idx % defaultPortColors.length]"
+                  @input="pm.color=$event.target.value"
+                  style="width:32px;height:32px;border:1px solid #30363d;border-radius:4px;background:#0d1117;cursor:pointer;padding:2px">
+                <input type="number" min="1" max="65535" x-model.number="pm.port" placeholder="Port"
+                  style="width:80px;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+                <input type="text" x-model="pm.name" placeholder="Name (e.g. qBit-movies)"
+                  style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+                <select x-model="pm.type"
+                  style="width:130px;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+                  <option value="qbittorrent">qBittorrent</option>
+                  <option value="sabnzbd">SABnzbd</option>
+                  <option value="dispatcharr">Dispatcharr</option>
+                </select>
+                <button class="btn-danger" @click="config.ports.splice(idx,1)" title="Remove">&times;</button>
+              </div>
+              <!-- Auth row (conditional on type) -->
+              <div x-show="pm.type === 'sabnzbd'" style="display:flex;gap:8px;align-items:center;margin-top:8px">
+                <input type="password" x-model="pm.apiKey" placeholder="SABnzbd API key"
+                  autocomplete="one-time-code"
+                  style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+                <button class="btn btn-sm" @click="testPort(pm)">Test</button>
+              </div>
+              <div x-show="pm.type === 'dispatcharr'" style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+                <div style="display:flex;gap:8px;align-items:center">
+                  <input type="text" x-model="pm.username" placeholder="Dispatcharr admin username"
+                    autocomplete="off"
+                    style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+                  <input type="password" x-model="pm.password" placeholder="Password"
+                    autocomplete="one-time-code"
+                    style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+                  <button class="btn btn-sm" @click="testPort(pm)">Test</button>
+                </div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#8b949e;cursor:pointer">
+                  <input type="checkbox" x-model="pm.showDetails" style="cursor:pointer">
+                  Show active streams panel on Traffic tab
+                </label>
+              </div>
+              <!-- Test result message -->
+              <div x-show="portTestMessages[pm.port]" x-text="portTestMessages[pm.port]"
+                :style="'margin-top:6px;font-size:12px;color:' + (portTestOk[pm.port] ? '#3fb950' : '#f85149')"></div>
             </div>
           </template>
-          <button class="btn btn-sm" @click="config.ports.push({port:0,name:'',color:''})">+ Add port</button>
+          <button class="btn btn-sm" @click="config.ports.push({port:0,name:'',color:'',type:'qbittorrent'})">+ Add service</button>
         </div>
 
         <!-- Reset Stats -->
@@ -550,7 +615,7 @@
             so per-service totals start from the same point as VPN totals.
           </div>
           <button class="btn btn-sm" style="color:#f85149;border-color:#f85149"
-            @click="if(confirm('Reset all traffic statistics? This cannot be undone.')) resetStats()">Reset All Stats</button>
+            @click="confirmModal = { show: true, title: 'Reset All Stats', message: 'Reset all traffic statistics?\n\nThis clears history, daily volumes, and per-service totals. This cannot be undone.', confirmLabel: 'Reset', onConfirm: () => resetStats() }">Reset All Stats</button>
         </div>
 
         <div class="btn-row" style="justify-content:flex-end;margin-top:12px">
@@ -761,6 +826,45 @@
       </div>
     </template>
 
+    <!-- Active Streams (services with ShowDetails enabled — currently Dispatcharr) -->
+    <template x-if="hasActiveStreams()">
+      <div class="card">
+        <div class="card-title">Active Streams</div>
+        <template x-for="(svc, port) in serviceDetails" :key="port">
+          <div style="margin-bottom:12px">
+            <div style="font-size:12px;color:#8b949e;margin-bottom:6px">
+              <span x-text="svc.name"></span>
+              <span style="color:#484f58" x-text="':' + port"></span>
+              <span x-text="' · ' + (svc.details ? svc.details.length : 0) + ' active'"></span>
+            </div>
+            <template x-if="!svc.details || svc.details.length === 0">
+              <div style="font-size:12px;color:#484f58;padding:8px 0">No active streams.</div>
+            </template>
+            <template x-for="ch in (svc.details || [])" :key="ch.channelId">
+              <div style="border:1px solid #30363d;border-radius:6px;padding:8px 10px;margin-bottom:6px;background:#0d1117">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+                  <div style="font-weight:600;color:#e1e4e8" x-text="ch.streamName || ch.channelId"></div>
+                  <div style="font-size:12px;color:#8b949e;display:flex;gap:10px;flex-wrap:wrap">
+                    <span x-text="ch.clientCount + (ch.clientCount === 1 ? ' client' : ' clients')"></span>
+                    <span x-text="(ch.avgBitrateKbps || 0).toFixed(0) + ' kbps'"></span>
+                    <span x-show="ch.resolution" x-text="ch.resolution"></span>
+                    <span x-show="ch.videoCodec" x-text="ch.videoCodec"></span>
+                  </div>
+                </div>
+                <template x-if="ch.clients && ch.clients.length > 0">
+                  <div style="margin-top:6px;font-size:11px;color:#484f58">
+                    <template x-for="c in ch.clients" :key="c.clientId">
+                      <div x-text="c.ipAddress + '  ·  ' + c.userAgent"></div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </template>
+
   </div><!-- end traffic tab -->
 
   <!-- ==================== STATS TAB ==================== -->
@@ -937,6 +1041,20 @@
 
   </div><!-- end stats tab -->
 
+  <!-- Confirm modal -->
+  <div class="modal-overlay" x-show="confirmModal.show" @click.self="confirmModal.show = false; if(confirmModal.onCancel) confirmModal.onCancel()" x-cloak>
+    <div class="modal">
+      <div class="modal-title" x-text="confirmModal.title"></div>
+      <div style="font-size:13px;color:#8b949e;white-space:pre-line;line-height:1.6" x-text="confirmModal.message"></div>
+      <div class="modal-actions">
+        <button class="btn btn-sm" @click="confirmModal.show = false; if(confirmModal.onCancel) confirmModal.onCancel()">Cancel</button>
+        <button class="btn btn-sm" style="color:#f85149;border-color:#f85149" @click="const fn = confirmModal.onConfirm; confirmModal.show = false; if(fn) fn()">
+          <span x-text="confirmModal.confirmLabel || 'Confirm'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast" :class="toast.type" x-show="toast.show" x-transition x-text="toast.msg"></div>
 
@@ -947,7 +1065,7 @@
 <script>
 function app() {
   return {
-    tab: localStorage.getItem('vpn-tab') || 'config',
+    tab: localStorage.getItem('vpn-tab') || 'traffic',
     config: {
       enabled: true,
       scheduleEnabled: false,
@@ -969,6 +1087,7 @@ function app() {
     showSchedule: true,
     showSummary: true,
     toast: { show: false, msg: '', type: '' },
+    confirmModal: { show: false, title: '', message: '', confirmLabel: '', onConfirm: null, onCancel: null },
     pollTimer: null,
 
     // Traffic stats
@@ -982,6 +1101,16 @@ function app() {
     statsDlTooltip: { show: false, x: 0, y: 0, date: '', rows: [], total: '' },
     statsUlTooltip: { show: false, x: 0, y: 0, date: '', rows: [], total: '' },
     liveStats: { rxRate: 0, txRate: 0, maxRx24h: 0, maxTx24h: 0, avgRx24h: 0, avgTx24h: 0, totalRx: 0, totalTx: 0, vol6hRx: 0, vol6hTx: 0, vol24hRx: 0, vol24hTx: 0 },
+    // Per-port Test button state, keyed by port number (NOT array index —
+    // removing a port would otherwise shift the indexes and stale messages
+    // would attach to the wrong row).
+    portTestMessages: {},
+    portTestOk: {},
+    // Active streams panel data — populated from /api/service-details for
+    // any configured port whose ShowDetails flag is on and whose poller
+    // implements the Details interface.
+    serviceDetails: {}, // { [port]: { type, name, details: [...] } }
+    serviceDetailsTimer: null,
     graphPeriod: '1h',
     graphShow: 'both',
     graphTotal: true, // show total line
@@ -993,7 +1122,7 @@ function app() {
     async init() {
       await this.reload();
       // Load data for remembered tab
-      if (this.tab === 'traffic') { this.fetchHistory(); this.fetchDaily(); }
+      if (this.tab === 'traffic') { this.fetchHistory(); this.fetchDaily(); this.startServiceDetailsPolling(); }
       if (this.tab === 'stats') { this.fetchStatsData(); }
       // Poll status every 5s
       this.pollTimer = setInterval(() => this.fetchStatus(), 5000);
@@ -1018,7 +1147,10 @@ function app() {
         this.config.logChanges = cfg.logChanges !== false;
         this.config.configVersion = cfg.configVersion || 1;
         this.config.rules = (cfg.rules || []).map(r => ({...r}));
-        this.config.ports = (cfg.ports || []).map(p => ({...p}));
+        this.config.ports = (cfg.ports || []).map(p => ({
+          type: 'qbittorrent', // default for legacy configs without type field
+          ...p,
+        }));
         this.activeUp = status.activeUp || { active: false, rateMB: 0 };
         this.activeDown = status.activeDown || { active: false, rateMB: 0 };
         this.activeRule = status.activeRule || { source: 'default', index: 0 };
@@ -1271,6 +1403,9 @@ function app() {
       if (t === 'traffic') {
         this.fetchHistory();
         this.fetchDaily();
+        this.startServiceDetailsPolling();
+      } else {
+        this.stopServiceDetailsPolling();
       }
       if (t === 'stats') {
         this.fetchStatsData();
@@ -2186,6 +2321,90 @@ function app() {
       } catch (e) {
         this.showToast('Reset failed: ' + e.message, 'toast-error');
       }
+    },
+
+    // Call the backend Test endpoint with the current port mapping edit
+    // state — verifies connectivity + auth without saving the config.
+    // Test results are keyed by pm.port so removing/reordering ports does
+    // not detach a message from its row. If the user hasn't touched the
+    // credential field, it will still be the credentialMask sentinel — the
+    // backend resolves it to the real value from disk before testing.
+    async testPort(pm) {
+      const key = pm.port || 0;
+      this.portTestMessages[key] = 'Testing...';
+      this.portTestOk[key] = false;
+      try {
+        const res = await fetch('/api/test-port', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            port: pm.port,
+            name: pm.name,
+            type: pm.type,
+            apiKey: pm.apiKey,
+            username: pm.username,
+            password: pm.password,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.ok === false) {
+          this.portTestOk[key] = false;
+          this.portTestMessages[key] = 'Failed: ' + (data.error || res.statusText);
+          return;
+        }
+        this.portTestOk[key] = true;
+        const s = data.stats || {};
+        const parts = [];
+        if (typeof s.active === 'number') parts.push(s.active + ' active');
+        if (s.liveRx) parts.push('↓ ' + this.formatSpeed(s.liveRx));
+        if (s.sessionRx) parts.push('Σ ' + this.formatBytes(s.sessionRx));
+        this.portTestMessages[key] = 'OK' + (parts.length ? ' — ' + parts.join(' · ') : '');
+      } catch (e) {
+        this.portTestOk[key] = false;
+        this.portTestMessages[key] = 'Error: ' + e.message;
+      }
+    },
+
+    // Poll /api/service-details for any configured port with showDetails on
+    // and a type that can return details. Runs on a short interval while
+    // the Traffic tab is visible and at least one such port exists.
+    async fetchServiceDetails() {
+      const detailPorts = (this.config.ports || []).filter(
+        p => p.showDetails && (p.type === 'dispatcharr')
+      );
+      if (detailPorts.length === 0) {
+        this.serviceDetails = {};
+        return;
+      }
+      const next = {};
+      for (const pm of detailPorts) {
+        try {
+          const res = await fetch('/api/service-details?port=' + encodeURIComponent(pm.port));
+          if (res.status === 204 || !res.ok) continue;
+          const data = await res.json();
+          next[pm.port] = data;
+        } catch (e) {
+          // Silently skip — next tick will try again
+        }
+      }
+      this.serviceDetails = next;
+    },
+
+    startServiceDetailsPolling() {
+      if (this.serviceDetailsTimer) return;
+      this.fetchServiceDetails();
+      this.serviceDetailsTimer = setInterval(() => this.fetchServiceDetails(), 5000);
+    },
+
+    stopServiceDetailsPolling() {
+      if (this.serviceDetailsTimer) {
+        clearInterval(this.serviceDetailsTimer);
+        this.serviceDetailsTimer = null;
+      }
+    },
+
+    hasActiveStreams() {
+      return Object.keys(this.serviceDetails).length > 0;
     },
 
     showToast(msg, type) {
