@@ -101,11 +101,17 @@ const (
 	persistInterval = 5 * time.Minute
 )
 
-// portCounter tracks per-service traffic via qBit API
+// portCounter tracks per-service traffic. The counter math (deltas, resets,
+// restart detection) is generic — it works on whatever SessionRx/SessionTx
+// the configured ServicePoller returns, regardless of whether that came
+// from qBit, SAB, or Dispatcharr. The `mapping` field is kept so the poll
+// loop can hand the full PortMapping (including auth fields) back to the
+// poller on every tick.
 type portCounter struct {
 	port    int
 	name    string
-	totalRx uint64 // cumulative across restarts (from persisted + API session data)
+	mapping PortMapping // full mapping — used to look up poller + auth fields
+	totalRx uint64      // cumulative across restarts (from persisted + API session data)
 	totalTx uint64
 	// Track session offsets for cumulative calculation
 	baseRx uint64 // persisted total at start of this session
@@ -113,10 +119,10 @@ type portCounter struct {
 	// Track previous session values for accurate daily volume deltas
 	prevSessionRx uint64
 	prevSessionTx uint64
-	hasSession     bool   // true after first successful poll
-	resetPending   bool   // true after stats reset — next poll sets base offset
-	resetOffsetRx  uint64 // session value at time of reset (subtracted from future session values)
-	resetOffsetTx  uint64
+	hasSession    bool   // true after first successful poll
+	resetPending  bool   // true after stats reset — next poll sets base offset
+	resetOffsetRx uint64 // session value at time of reset (subtracted from future session values)
+	resetOffsetTx uint64
 }
 
 // TrafficCollector samples wg0 interface stats and maintains history
@@ -642,14 +648,9 @@ func parseNftCounterBytes(nftOutput, comment string) uint64 {
 	return 0
 }
 
-// qBitTransferInfo is the response from qBit API /api/v2/transfer/info
-type qBitTransferInfo struct {
-	DlInfoSpeed int64 `json:"dl_info_speed"`
-	UpInfoSpeed int64 `json:"up_info_speed"`
-	DlInfoData  int64 `json:"dl_info_data"`  // session total downloaded
-	UpInfoData  int64 `json:"up_info_data"`  // session total uploaded
-}
-
+// qBitTransferInfo now lives in poller_qbit.go alongside the qBitPoller
+// implementation. This var stays here because httpClient is shared between
+// stats.go (interface bytes) and poller_qbit.go (HTTP request).
 var httpClient = &http.Client{Timeout: 3 * time.Second}
 
 // syncPortCounters reads config and updates port counter list (no nft rules needed)
@@ -662,12 +663,28 @@ func (tc *TrafficCollector) syncPortCounters() {
 		return
 	}
 
-	// Check if config changed
+	// Check if config changed. We treat a counter with an empty mapping
+	// field as "stale" even if its port/name still match — this handles
+	// the startup case where counters were restored from persistence
+	// (which has no Type/APIKey/Username/Password) and need the full
+	// PortMapping attached before the next poll.
 	tc.mu.RLock()
 	changed := len(tc.portCounters) != len(cfg.Ports)
 	if !changed {
 		for i, pc := range tc.portCounters {
 			if pc.port != cfg.Ports[i].Port || pc.name != cfg.Ports[i].Name {
+				changed = true
+				break
+			}
+			if pc.mapping.Port == 0 {
+				changed = true
+				break
+			}
+			if pc.mapping.Type != cfg.Ports[i].Type ||
+				pc.mapping.APIKey != cfg.Ports[i].APIKey ||
+				pc.mapping.Username != cfg.Ports[i].Username ||
+				pc.mapping.Password != cfg.Ports[i].Password ||
+				pc.mapping.ShowDetails != cfg.Ports[i].ShowDetails {
 				changed = true
 				break
 			}
@@ -692,7 +709,7 @@ func (tc *TrafficCollector) syncPortCounters() {
 	}
 
 	for i, pm := range cfg.Ports {
-		pc := portCounter{port: pm.Port, name: pm.Name}
+		pc := portCounter{port: pm.Port, name: pm.Name, mapping: pm}
 		if old, ok := oldTotals[pm.Port]; ok {
 			pc.totalRx = old.totalRx
 			pc.totalTx = old.totalTx
@@ -717,25 +734,28 @@ func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 		return nil, nil
 	}
 
-	// Collect API responses without lock
+	// Collect poller responses without holding the collector mutex.
+	// Each mapping dispatches to the ServicePoller registered under its
+	// Type field (empty Type falls back to qBittorrent for back-compat).
 	type apiResult struct {
-		info qBitTransferInfo
-		ok   bool
+		stats ServiceStats
+		ok    bool
 	}
 	results := make([]apiResult, len(counters))
 
+	pollCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
 	for i, pc := range counters {
-		url := fmt.Sprintf("http://localhost:%d/api/v2/transfer/info", pc.port)
-		resp, err := httpClient.Get(url)
+		poller := pollerFor(pc.mapping.Type)
+		if poller == nil {
+			continue
+		}
+		s, err := poller.Poll(pollCtx, pc.mapping)
 		if err != nil {
 			continue
 		}
-		var info qBitTransferInfo
-		err = json.NewDecoder(resp.Body).Decode(&info)
-		resp.Body.Close()
-		if err == nil {
-			results[i] = apiResult{info: info, ok: true}
-		}
+		results[i] = apiResult{stats: s, ok: true}
 	}
 
 	// Now update state under lock
@@ -760,14 +780,17 @@ func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 			continue
 		}
 
-		info := results[i].info
+		svc := results[i].stats
+		// Poller already clamps negatives, but be defensive.
+		if svc.SessionRx < 0 {
+			svc.SessionRx = 0
+		}
+		if svc.SessionTx < 0 {
+			svc.SessionTx = 0
+		}
 
-		// Clamp negative values to 0
-		if info.DlInfoData < 0 { info.DlInfoData = 0 }
-		if info.UpInfoData < 0 { info.UpInfoData = 0 }
-
-		sessionRx := uint64(info.DlInfoData)
-		sessionTx := uint64(info.UpInfoData)
+		sessionRx := uint64(svc.SessionRx)
+		sessionTx := uint64(svc.SessionTx)
 
 		// Handle stats reset: snapshot current session as zero point
 		if pc.resetPending {
@@ -838,8 +861,8 @@ func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 		stats = append(stats, PortStats{
 			Port:    pc.port,
 			Name:    pc.name,
-			RxRate:  float64(info.DlInfoSpeed),
-			TxRate:  float64(info.UpInfoSpeed),
+			RxRate:  float64(svc.LiveRx),
+			TxRate:  float64(svc.LiveTx),
 			RxBytes: pc.totalRx,
 			TxBytes: pc.totalTx,
 		})

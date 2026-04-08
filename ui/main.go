@@ -63,6 +63,10 @@ func main() {
 	mux.HandleFunc("GET /api/stats/daily", app.handleStatsDailyVolume)
 	mux.HandleFunc("POST /api/stats/reset", app.handleStatsReset)
 
+	// Service poller routes (Phase 1+: per-service details and test)
+	mux.HandleFunc("GET /api/service-details", app.handleServiceDetails)
+	mux.HandleFunc("POST /api/test-port", app.handleTestPort)
+
 	// Static files
 	staticFS, _ := fs.Sub(staticFiles, "static")
 	mux.Handle("/", http.FileServer(http.FS(staticFS)))
@@ -137,23 +141,84 @@ func (app *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status)
 }
 
-// GET /api/config — full parsed config
+// credentialMask is the sentinel value sent to the frontend in place of
+// stored passwords / API keys. The frontend treats it as "value unchanged"
+// and the PUT handler restores the real value from disk on save. Eight
+// characters so it visually reads as a fixed-length placeholder regardless
+// of the real credential length.
+const credentialMask = "********"
+
+// GET /api/config — full parsed config with credentials masked.
+//
+// SECURITY: vpn-gateway's web UI has no auth layer of its own — anyone who
+// can reach the listening port can read this endpoint. Returning credentials
+// in plain text would leak the Dispatcharr admin password and SAB API key
+// to anything on the same network. We mask them with credentialMask on read
+// and merge the originals back in handlePutConfig if the frontend sends the
+// mask value unchanged.
 func (app *App) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	cfg, err := loadConfig(app.configPath)
 	if err != nil {
 		writeError(w, 500, fmt.Sprintf("Failed to read config: %v", err))
 		return
 	}
+	for i := range cfg.Ports {
+		if cfg.Ports[i].Password != "" {
+			cfg.Ports[i].Password = credentialMask
+		}
+		if cfg.Ports[i].APIKey != "" {
+			cfg.Ports[i].APIKey = credentialMask
+		}
+	}
 	writeJSON(w, cfg)
 }
 
-// PUT /api/config — update config
+// PUT /api/config — update config.
+//
+// Credential merge: if a port's Password / APIKey field comes in as the
+// credentialMask sentinel, we look up the matching port in the on-disk
+// config and restore the real value before saving. This is what allows
+// the masked GET response to round-trip safely — the frontend can edit
+// other fields and save without ever seeing the real credentials.
 func (app *App) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	var cfg Config
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024) // 64KB limit
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		writeError(w, 400, fmt.Sprintf("Invalid JSON: %v", err))
 		return
+	}
+
+	// Restore masked credentials from the on-disk config before validating.
+	// We only attempt the lookup if at least one mask is present, to keep
+	// the common-case write (no credentials at all, or all freshly typed)
+	// from doing an extra disk read.
+	needsMerge := false
+	for _, pm := range cfg.Ports {
+		if pm.Password == credentialMask || pm.APIKey == credentialMask {
+			needsMerge = true
+			break
+		}
+	}
+	if needsMerge {
+		existing, err := loadConfig(app.configPath)
+		if err == nil {
+			oldByPort := make(map[int]PortMapping, len(existing.Ports))
+			for _, pm := range existing.Ports {
+				oldByPort[pm.Port] = pm
+			}
+			for i := range cfg.Ports {
+				old, ok := oldByPort[cfg.Ports[i].Port]
+				if !ok {
+					continue
+				}
+				if cfg.Ports[i].Password == credentialMask {
+					cfg.Ports[i].Password = old.Password
+				}
+				if cfg.Ports[i].APIKey == credentialMask {
+					cfg.Ports[i].APIKey = old.APIKey
+				}
+			}
+		}
 	}
 
 	if err := ValidateConfig(&cfg); err != nil {

@@ -252,7 +252,7 @@ vpn-gateway has a built-in widget endpoint for [Homepage](https://gethomepage.de
 
 ```yaml
 - VPN Gateway:
-    icon: mdi-vpn
+    icon: https://raw.githubusercontent.com/prophetse7en/vpn-gateway/main/icon.png
     href: http://YOUR_IP:6050
     widget:
         type: customapi
