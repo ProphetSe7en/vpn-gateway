@@ -153,6 +153,7 @@ type TrafficCollector struct {
 
 	// Per-port counters
 	portCounters []portCounter
+	pollTick     uint64 // incremented each sample, used for per-type throttling
 
 	// SSE subscribers
 	subMu   sync.Mutex
@@ -218,6 +219,7 @@ func (tc *TrafficCollector) Run(ctx context.Context) {
 }
 
 func (tc *TrafficCollector) sample() {
+	tc.pollTick++ // atomic not needed — only accessed from this goroutine
 	rx, tx, err := readInterfaceBytes(tc.iface)
 	// Read nft drop counters (outside lock — exec.Command may take a few ms)
 	dropRx, dropTx := readNftDropBytes()
@@ -749,6 +751,11 @@ func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 	for i, pc := range counters {
 		poller := pollerFor(pc.mapping.Type)
 		if poller == nil {
+			continue
+		}
+		// Throttle Dispatcharr polling to every 5th tick (~15s at 3s sample interval)
+		// to avoid overwhelming its API. Other services poll every tick.
+		if pc.mapping.Type == "dispatcharr" && tc.pollTick%5 != 0 {
 			continue
 		}
 		s, err := poller.Poll(pollCtx, pc.mapping)
