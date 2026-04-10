@@ -827,7 +827,7 @@ func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 			if sessionRx >= pc.resetOffsetRx {
 				sessionRx -= pc.resetOffsetRx
 			} else {
-				// qBit restarted since reset — offset no longer valid
+				// Service restarted since reset — offset no longer valid
 				pc.resetOffsetRx = 0
 			}
 			if sessionTx >= pc.resetOffsetTx {
@@ -843,7 +843,7 @@ func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 			if sessionRx >= pc.prevSessionRx {
 				rxDelta = sessionRx - pc.prevSessionRx
 			} else {
-				// qBit restarted — count everything in new session
+				// Service restarted — count everything in new session
 				rxDelta = sessionRx
 			}
 			if sessionTx >= pc.prevSessionTx {
@@ -857,7 +857,7 @@ func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 		pc.hasSession = true
 		deltas[pc.port] = PortBytes{RxBytes: rxDelta, TxBytes: txDelta}
 
-		// Detect qBit restart: session data dropped below what we've seen
+		// Detect service restart: session data dropped below what we've seen
 		prevCumulativeSessionRx := uint64(0)
 		if pc.totalRx > pc.baseRx {
 			prevCumulativeSessionRx = pc.totalRx - pc.baseRx
@@ -868,7 +868,7 @@ func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 		}
 
 		if sessionRx < prevCumulativeSessionRx || sessionTx < prevCumulativeSessionTx {
-			// qBit restarted — accumulate previous total as new base
+			// Service restarted — accumulate previous total as new base
 			pc.baseRx = pc.totalRx
 			pc.baseTx = pc.totalTx
 		} else if pc.baseRx == 0 && pc.baseTx == 0 && (pc.totalRx > 0 || pc.totalTx > 0) {
