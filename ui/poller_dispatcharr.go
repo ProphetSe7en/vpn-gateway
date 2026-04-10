@@ -22,9 +22,12 @@ import (
 // field anywhere. The dispatcharrChannel struct deliberately omits it.
 // See multi-service-monitoring-plan.md § "Security warning".
 type dispatcharrPoller struct {
-	mu     sync.Mutex
-	tokens map[int]*dispatcharrToken       // keyed by mapping.Port
-	state  map[int]*dispatcharrPortState   // keyed by mapping.Port
+	mu            sync.Mutex
+	tokens        map[int]*dispatcharrToken       // keyed by mapping.Port
+	state         map[int]*dispatcharrPortState   // keyed by mapping.Port
+	cached        map[int]ServiceStats            // last successful Poll result per port
+	ticks         map[int]uint64                  // per-port poll counter for throttling
+	cachedDetails map[int]cachedDispatcharrDetails // last Details result per port
 }
 
 // dispatcharrPortState is per-configured-port state that survives across
@@ -49,23 +52,41 @@ type dispatcharrPortState struct {
 // between successful polls (vpn-gateway down, Dispatcharr unreachable, or
 // Dispatcharr moved out of our network namespace and back), we treat the
 // next poll as a fresh baseline rather than trusting the channelBytes map.
-// 60 s gives ~20 missed polls of slack at the normal 3 s cadence.
+// 60 s gives ~4 missed real polls at the throttled ~15 s cadence.
 const dispatcharrGapThreshold = 60 * time.Second
 
 // dispatcharrRateSample is one (timestamp, cumulative bytes) data point in the
-// smoothing window. We keep ~12 s worth so the live rate is robust to
-// Dispatcharr's chunked /proxy/ts/status updates — its total_bytes counter
-// often sits still for several polls then jumps, so a poll-to-poll delta
-// would oscillate between 0 and inflated values.
+// smoothing window. We keep ~30 s worth (must exceed the effective poll
+// interval of ~15 s) so the live rate is robust to Dispatcharr's chunked
+// /proxy/ts/status updates — its total_bytes counter often sits still for
+// several polls then jumps, so a poll-to-poll delta would oscillate between
+// 0 and inflated values.
 type dispatcharrRateSample struct {
 	at           time.Time
 	sessionBytes int64
 }
 
 // dispatcharrRateWindow is how far back we look when computing the smoothed
-// live rate. 12 s comfortably spans Dispatcharr's update cadence at our 3 s
-// poll interval while still feeling responsive.
-const dispatcharrRateWindow = 12 * time.Second
+// live rate. Must be larger than the effective poll interval (currently ~15 s
+// due to dispatcharrPollInterval=5 at 3 s sample rate) so we always have at
+// least 2 samples in the window. 30 s keeps 2-3 data points.
+const dispatcharrRateWindow = 30 * time.Second
+
+// dispatcharrPollInterval controls how often we actually hit the Dispatcharr
+// API. Every Nth call to Poll() makes a real request; the others return the
+// cached result. This avoids overwhelming Dispatcharr's API while keeping
+// the stats/graph pipelines fed every tick.
+const dispatcharrPollInterval = 5 // ~15s at 3s sample interval
+
+// dispatcharrDetailsTTL controls how long a cached Details() result is
+// reused before making a new API call. Frontend polls every 5 s, so a
+// 30 s TTL means we hit the API roughly every 6th frontend poll.
+const dispatcharrDetailsTTL = 30 * time.Second
+
+type cachedDispatcharrDetails struct {
+	data any
+	at   time.Time
+}
 
 // dispatcharrToken caches a JWT pair for a single Dispatcharr instance.
 // We don't rely on the JWT's exp claim — we just refresh on 401.
@@ -224,6 +245,21 @@ func (d *dispatcharrPoller) Poll(ctx context.Context, mapping PortMapping) (Serv
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	// Throttle: only hit the API every Nth call per port. On skipped ticks,
+	// return the cached result so graphs and stats stay populated.
+	if d.ticks == nil {
+		d.ticks = make(map[int]uint64)
+	}
+	d.ticks[mapping.Port]++
+	if d.ticks[mapping.Port]%dispatcharrPollInterval != 0 {
+		if d.cached != nil {
+			if s, ok := d.cached[mapping.Port]; ok {
+				return s, nil
+			}
+		}
+		// No cached result yet — fall through to do a real poll
+	}
+
 	status, err := d.fetchStatus(ctx, mapping)
 	if err != nil {
 		return ServiceStats{}, err
@@ -256,13 +292,18 @@ func (d *dispatcharrPoller) Poll(ctx context.Context, mapping PortMapping) (Serv
 		for _, ch := range status.Channels {
 			active += ch.ClientCount
 		}
-		return ServiceStats{
+		result := ServiceStats{
 			SessionRx: ps.sessionBytes,
 			SessionTx: 0,
 			LiveRx:    0,
 			LiveTx:    0,
 			Active:    active,
-		}, nil
+		}
+		if d.cached == nil {
+			d.cached = make(map[int]ServiceStats)
+		}
+		d.cached[mapping.Port] = result
+		return result, nil
 	}
 
 	// Accumulate per-channel deltas into the session counter.
@@ -318,13 +359,18 @@ func (d *dispatcharrPoller) Poll(ctx context.Context, mapping PortMapping) (Serv
 	// zero. The map grows O(unique channels seen during process lifetime),
 	// which is bounded in practice and trimmed on vpn-gateway restart.
 
-	return ServiceStats{
+	result := ServiceStats{
 		SessionRx: ps.sessionBytes,
 		SessionTx: 0, // Dispatcharr is download-only from vpn-gateway's perspective
 		LiveRx:    ps.lastLiveRx,
 		LiveTx:    0,
 		Active:    active,
-	}, nil
+	}
+	if d.cached == nil {
+		d.cached = make(map[int]ServiceStats)
+	}
+	d.cached[mapping.Port] = result
+	return result, nil
 }
 
 // fetchStatus makes the actual GET request, handling the token refresh
@@ -426,6 +472,15 @@ type dispatcharrClientInfo struct {
 func (d *dispatcharrPoller) Details(ctx context.Context, mapping PortMapping) (any, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// Return cached details if still fresh — frontend polls every 5 s,
+	// so a 10 s TTL halves the API load without noticeable staleness.
+	if d.cachedDetails != nil {
+		if cd, ok := d.cachedDetails[mapping.Port]; ok && time.Since(cd.at) < dispatcharrDetailsTTL {
+			return cd.data, nil
+		}
+	}
+
 	status, err := d.fetchStatus(ctx, mapping)
 	if err != nil {
 		return nil, err
@@ -454,6 +509,11 @@ func (d *dispatcharrPoller) Details(ctx context.Context, mapping PortMapping) (a
 			Clients:        clients,
 		})
 	}
+
+	if d.cachedDetails == nil {
+		d.cachedDetails = make(map[int]cachedDispatcharrDetails)
+	}
+	d.cachedDetails[mapping.Port] = cachedDispatcharrDetails{data: out, at: time.Now()}
 	return out, nil
 }
 

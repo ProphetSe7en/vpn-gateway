@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -103,14 +102,15 @@ const (
 
 // portCounter tracks per-service traffic. The counter math (deltas, resets,
 // restart detection) is generic — it works on whatever SessionRx/SessionTx
-// the configured ServicePoller returns, regardless of whether that came
-// from qBit, SAB, or Dispatcharr. The `mapping` field is kept so the poll
-// loop can hand the full PortMapping (including auth fields) back to the
-// poller on every tick.
+// the source returns, regardless of whether that came from an API poller
+// or nft byte counters. The `mapping` field is kept so the poll loop can
+// hand the full PortMapping (including auth fields) back to the poller on
+// every tick.
 type portCounter struct {
 	port    int
 	name    string
 	mapping PortMapping // full mapping — used to look up poller + auth fields
+	useNft  bool        // true = use nft byte counters instead of API polling
 	totalRx uint64      // cumulative across restarts (from persisted + API session data)
 	totalTx uint64
 	// Track session offsets for cumulative calculation
@@ -151,10 +151,12 @@ type TrafficCollector struct {
 	ruleChangeAt  time.Time // when nft rule changed (drop counter reset detected)
 	dropInitDone  bool      // true after first drop counter read
 
+	// Cached nft chain output — read once per tick, shared between drop
+	// counter parsing and per-port byte counter parsing.
+	nftChains nftChainOutput
+
 	// Per-port counters
 	portCounters []portCounter
-	pollTick     uint64 // incremented each sample, used for per-type throttling
-
 	// SSE subscribers
 	subMu   sync.Mutex
 	subs    map[chan TrafficStats]struct{}
@@ -192,6 +194,10 @@ func (tc *TrafficCollector) Run(ctx context.Context) {
 
 	log.Printf("Traffic collector started on %s", tc.iface)
 
+	// Read nft chains before initial port sync so detectNftPorts() can
+	// identify which ports have nft byte counters on first run.
+	tc.nftChains = readNftChains()
+
 	// Initial port counter setup
 	tc.syncPortCounters()
 
@@ -219,10 +225,12 @@ func (tc *TrafficCollector) Run(ctx context.Context) {
 }
 
 func (tc *TrafficCollector) sample() {
-	tc.pollTick++ // atomic not needed — only accessed from this goroutine
 	rx, tx, err := readInterfaceBytes(tc.iface)
-	// Read nft drop counters (outside lock — exec.Command may take a few ms)
-	dropRx, dropTx := readNftDropBytes()
+	// Read nft chains once per tick (outside lock — exec.Command may take a few ms).
+	// The cached output is shared between drop counter parsing and per-port
+	// byte counter parsing in pollPortStats().
+	tc.nftChains = readNftChains()
+	dropRx, dropTx := parseNftDropBytes(tc.nftChains)
 	now := time.Now()
 	elapsed := now.Sub(tc.prevTime).Seconds()
 
@@ -623,21 +631,6 @@ func (tc *TrafficCollector) loadFromDisk() {
 
 var validIface = regexp.MustCompile(`^[a-zA-Z0-9\-]+$`)
 
-// readNftDropBytes reads the cumulative bytes dropped by nft traffic shaper rules.
-// wg0 rx_bytes counts ALL arriving packets including those nft subsequently drops.
-// Subtracting dropped bytes gives actual throughput.
-func readNftDropBytes() (rxDrop, txDrop uint64) {
-	out, err := exec.Command("nft", "list", "chain", "inet", "hotio", "input").Output()
-	if err == nil {
-		rxDrop = parseNftCounterBytes(string(out), "traffic-limit-down")
-	}
-	out, err = exec.Command("nft", "list", "chain", "inet", "hotio", "output").Output()
-	if err == nil {
-		txDrop = parseNftCounterBytes(string(out), "traffic-limit-up")
-	}
-	return
-}
-
 var nftBytesRe = regexp.MustCompile(`bytes\s+(\d+)\s+drop\s+comment\s+"([^"]+)"`)
 
 func parseNftCounterBytes(nftOutput, comment string) uint64 {
@@ -700,6 +693,9 @@ func (tc *TrafficCollector) syncPortCounters() {
 
 	log.Printf("Port monitoring config changed — updating service list")
 
+	// Auto-detect which ports have nft byte counters available.
+	nftPorts := detectNftPorts(tc.nftChains)
+
 	tc.mu.Lock()
 	oldCounters := tc.portCounters
 	tc.portCounters = make([]portCounter, len(cfg.Ports))
@@ -711,21 +707,30 @@ func (tc *TrafficCollector) syncPortCounters() {
 	}
 
 	for i, pm := range cfg.Ports {
-		pc := portCounter{port: pm.Port, name: pm.Name, mapping: pm}
+		// Use nft counters for services that proxy/serve data to LAN
+		// clients (e.g. Dispatcharr). Services that download via VPN on
+		// ephemeral ports (qBit, SAB) still need API polling — nft
+		// counters on their ports only capture web UI traffic.
+		canUseNft := pm.Type == "dispatcharr" && nftPorts[pm.Port]
+		pc := portCounter{port: pm.Port, name: pm.Name, mapping: pm, useNft: canUseNft}
 		if old, ok := oldTotals[pm.Port]; ok {
 			pc.totalRx = old.totalRx
 			pc.totalTx = old.totalTx
 			pc.baseRx = old.baseRx
 			pc.baseTx = old.baseTx
 		}
+		if canUseNft {
+			log.Printf("  %s (:%d) — using nft byte counters", pm.Name, pm.Port)
+		}
 		tc.portCounters[i] = pc
 	}
 	tc.mu.Unlock()
 }
 
-// pollPortStats queries qBit API on each configured port for live speed + session totals.
-// Returns stats for the API response AND actual byte deltas for accurate daily volume tracking.
-// HTTP calls are done WITHOUT holding the mutex to avoid blocking other operations.
+// pollPortStats reads per-service traffic data — either from nft byte counters
+// (for services like Dispatcharr) or via API polling (for qBit, SAB).
+// Returns stats for the SSE response AND actual byte deltas for daily volume tracking.
+// External calls (nft parsing, HTTP) are done WITHOUT holding the mutex.
 func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 	tc.mu.RLock()
 	counters := make([]portCounter, len(tc.portCounters))
@@ -749,13 +754,23 @@ func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 	defer cancel()
 
 	for i, pc := range counters {
-		poller := pollerFor(pc.mapping.Type)
-		if poller == nil {
+		if pc.useNft {
+			// Read bytes directly from nft counters — no API call needed.
+			// Output chain (sport) = bytes served to LAN clients (rx from
+			// user's perspective). Input chain (dport) = control/ACKs (tx).
+			rxBytes := parseNftPortBytes(tc.nftChains.output, pc.port)
+			txBytes := parseNftPortBytes(tc.nftChains.input, pc.port)
+			results[i] = apiResult{
+				stats: ServiceStats{
+					SessionRx: int64(rxBytes),
+					SessionTx: int64(txBytes),
+				},
+				ok: true,
+			}
 			continue
 		}
-		// Throttle Dispatcharr polling to every 5th tick (~15s at 3s sample interval)
-		// to avoid overwhelming its API. Other services poll every tick.
-		if pc.mapping.Type == "dispatcharr" && tc.pollTick%5 != 0 {
+		poller := pollerFor(pc.mapping.Type)
+		if poller == nil {
 			continue
 		}
 		s, err := poller.Poll(pollCtx, pc.mapping)
@@ -865,11 +880,19 @@ func (tc *TrafficCollector) pollPortStats() ([]PortStats, map[int]PortBytes) {
 		pc.totalRx = pc.baseRx + sessionRx
 		pc.totalTx = pc.baseTx + sessionTx
 
+		rxRate := float64(svc.LiveRx)
+		txRate := float64(svc.LiveTx)
+		if pc.useNft && pc.hasSession {
+			// nft counters don't provide a live rate — compute from deltas.
+			rxRate = float64(rxDelta) / sampleInterval.Seconds()
+			txRate = float64(txDelta) / sampleInterval.Seconds()
+		}
+
 		stats = append(stats, PortStats{
 			Port:    pc.port,
 			Name:    pc.name,
-			RxRate:  float64(svc.LiveRx),
-			TxRate:  float64(svc.LiveTx),
+			RxRate:  rxRate,
+			TxRate:  txRate,
 			RxBytes: pc.totalRx,
 			TxBytes: pc.totalTx,
 		})
