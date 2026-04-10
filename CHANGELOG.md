@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.3.0-dev
+
+### Features
+- **Multi-service monitoring** — SABnzbd and Dispatcharr pollers alongside qBittorrent. ServicePoller interface with registry pattern for extensibility
+- **Dispatcharr integration** — JWT authentication, Active Streams panel on Traffic tab showing channel names/clients/codec, credential masking on API responses
+- **SABnzbd integration** — Session byte tracking from server_stats deltas, gap detection for downtime handling
+- **nft byte counters for Dispatcharr** — Real-time 3s traffic updates using nftables counters instead of API polling. Smooth graphs without impacting Dispatcharr's stream delivery
+- **Custom confirm modal** — Replaces native browser confirm() dialogs
+
+### Improvements
+- **Dispatcharr API throttling** — Active Streams panel polls API every 30s; traffic data uses nft counters with no API calls
+- **Period Summary explanation** — Simplified universal text explaining VPN total vs per-service difference
+- **Service Monitoring settings** — Clarified port field with description text and tooltip
+- **8 KiB body cap** on `/api/test-port` (DoS hardening)
+- **Multi-arch builds** (amd64 + arm64 via QEMU)
+
 ## v1.2.14
 
 ### Features

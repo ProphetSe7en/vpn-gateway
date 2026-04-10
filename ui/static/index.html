@@ -556,7 +556,7 @@
         <div style="margin-top:16px;padding-top:16px;border-top:1px solid #30363d">
           <div style="font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:8px">Service Monitoring</div>
           <div style="font-size:12px;color:#8b949e;margin-bottom:10px">
-            Track per-service traffic on the Traffic tab. Pick the service type, fill in credentials if required, and hit Test to verify before saving. qBittorrent needs no authentication. SABnzbd uses its API key. Dispatcharr uses its admin username/password (JWT authentication).
+            Track per-service traffic on the Traffic tab. Enter the service's port number, pick the type, fill in credentials if required, and hit Test to verify before saving. qBittorrent needs no authentication. SABnzbd uses its API key. Dispatcharr uses its admin username/password (JWT authentication).
           </div>
           <template x-for="(pm, idx) in config.ports" :key="idx">
             <div style="border:1px solid #30363d;border-radius:6px;padding:8px;margin-bottom:8px;background:#0d1117">
@@ -564,7 +564,7 @@
                 <input type="color" :value="pm.color || defaultPortColors[idx % defaultPortColors.length]"
                   @input="pm.color=$event.target.value"
                   style="width:32px;height:32px;border:1px solid #30363d;border-radius:4px;background:#0d1117;cursor:pointer;padding:2px">
-                <input type="number" min="1" max="65535" x-model.number="pm.port" placeholder="Port"
+                <input type="number" min="1" max="65535" x-model.number="pm.port" placeholder="Port" title="Service port number"
                   style="width:80px;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
                 <input type="text" x-model="pm.name" placeholder="Name (e.g. qBit-movies)"
                   style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
@@ -1032,9 +1032,7 @@
           </table>
         </div>
         <div style="font-size:11px;color:#6e7681;margin-top:8px;line-height:1.5">
-          VPN total includes all traffic through the tunnel (payload + TCP/IP headers + WireGuard encryption + protocol overhead).
-          Service totals show application-level data only. Upload difference is typically small (~5%), but download difference can be
-          significant (~30-50%) due to BitTorrent protocol overhead (tracker, DHT, peer exchange, piece requests).
+          VPN total includes all tunnel traffic (data + protocol overhead + encryption). Per-service totals track application data only, so they will always be lower than the VPN total.
         </div>
       </div>
     </template>
