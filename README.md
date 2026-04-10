@@ -15,7 +15,7 @@ Built as a layer on top of [hotio/base:alpinevpn](https://hotio.dev/containers/b
 - **Upload + download** — independent rate limits for each direction
 - **Burst control** — configurable burst buffer for smooth TCP throughput
 - **Traffic stats** — real-time bandwidth graphs, 72-hour ring buffer, 365-day daily volumes, per-service breakdown
-- **Per-service monitoring** — track bandwidth per qBittorrent instance via their WebUI API (other applications like SABnzbd are not currently supported for per-service stats, but still benefit from rate limiting and total VPN stats)
+- **Per-service monitoring** — track bandwidth for qBittorrent (API), SABnzbd (API), and Dispatcharr (nftables counters for smooth 3s updates). Active Streams panel for Dispatcharr shows live channel/client info
 - **Stats persistence** — all traffic data survives container restarts (saved every 5 min + on shutdown)
 
 ## How it works
@@ -38,10 +38,10 @@ docker build -t vpn-gateway:latest .
 
 > **⚠️ Use a pinned version tag, not `latest`.** This container manages your VPN and network routing — if an update introduces breaking changes, every container routed through it (qBittorrent, etc.) loses connectivity and won't recover until vpn-gateway is fixed or rolled back. Pin to a version and update manually when you're ready.
 
-**Latest version: `v1.2.14`** — [all tags](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
+**Latest version: `v1.3.0`** — [all tags](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
 
 ```bash
-docker pull ghcr.io/prophetse7en/vpn-gateway:v1.2.10
+docker pull ghcr.io/prophetse7en/vpn-gateway:v1.3.0
 ```
 
 ### Run
@@ -59,7 +59,7 @@ docker run -d \
   -p 6050:6050 \
   -e VPN_EXPOSE_PORTS_ON_LAN=6050/tcp \
   -e PRIVNET=192.168.86.0/24 \
-  ghcr.io/prophetse7en/vpn-gateway:v1.2.10
+  ghcr.io/prophetse7en/vpn-gateway:v1.3.0
 ```
 
 On first start, a default `traffic.conf` is created in `/config/` with all options documented.
@@ -72,11 +72,10 @@ The web UI is available on port **6050**. To enable it:
 2. Add `6050/tcp` to `VPN_EXPOSE_PORTS_ON_LAN` so hotio's firewall allows LAN access
 3. Open `http://<server-ip>:6050` in your browser
 
-The UI provides:
-- Current status (active rates, limited/unlimited badge)
-- Default rate and burst buffer settings
-- Schedule rule editor with day filters
-- Effective schedule summary showing what rates apply when
+The UI has three tabs:
+- **Traffic** — real-time throughput graph, per-service breakdown, Active Streams panel (Dispatcharr)
+- **Volume** — historical bandwidth data (1h to all-time), per-service period summaries
+- **Settings** — sidebar navigation with Bandwidth, Schedule, Service Monitoring, and Tools sections
 
 Changes saved via the UI are written to both `/config/.traffic-ui.json` (UI model) and `/config/traffic.conf` (bash config). The config watcher picks up changes within 10 seconds.
 
@@ -204,9 +203,9 @@ nft rules are inserted into hotio's existing inet hotio table:
 The Stats tab shows real-time and historical bandwidth data:
 
 - **VPN-gateway total** — all traffic through the WireGuard tunnel (payload + TCP/IP headers + WireGuard encryption + protocol overhead)
-- **Per-service totals** — application-level data reported by each qBittorrent instance via its WebUI API. Only qBittorrent is supported for per-service stats — other applications routed through the gateway (e.g. SABnzbd) are included in the VPN total but do not have individual breakdowns.
+- **Per-service totals** — application-level data for qBittorrent (API), SABnzbd (API), and Dispatcharr (nft byte counters). Each service shows individual download/upload rates and cumulative totals.
 
-Upload overhead is typically small (~5%). Download overhead can be significant (~30-50%) due to BitTorrent protocol traffic (tracker communication, DHT, peer exchange, piece requests) that qBittorrent does not count as downloaded payload.
+VPN total includes all tunnel traffic (data + protocol overhead + encryption). Per-service totals track application data only, so they will always be lower than the VPN total.
 
 Stats are persisted to `/config/.traffic-stats.json` every 5 minutes and on graceful shutdown. Data includes a 72-hour ring buffer (3-second samples), 365 days of daily volumes, and per-service cumulative totals. The file is ~13 MB at maximum size and does not grow beyond that.
 
@@ -240,9 +239,17 @@ Route one or more qBittorrent containers through the VPN gateway so all torrent 
 
 **Install via Community Apps:** Search for **vpn gateway** (without hyphen) in the Apps tab — click Install and configure your WireGuard settings.
 
-**Or install manually:** Go to **Docker** → **Add Container**, set Repository to `ghcr.io/prophetse7en/vpn-gateway:v1.2.10`, and add the required paths, ports, and capabilities (see above).
+**Or install manually:** Go to **Docker** → **Add Container**, set Repository to `ghcr.io/prophetse7en/vpn-gateway:v1.3.0`, and add the required paths, ports, and capabilities (see above).
 
 The Web UI is available at `http://your-unraid-ip:6050`.
+
+### Container Network Fix (Recommended)
+
+When vpn-gateway restarts, Docker assigns it a new container ID. Containers using `container:vpn-gateway` network mode (like qBittorrent) keep the old reference and lose network connectivity. On Unraid, the only fix is to force-recreate each dependent container (edit → Apply without changes).
+
+**[containernetwork-autofix](https://github.com/ProphetSe7en/containernetwork-autofix)** automates this — it detects when a network-parent container restarts and automatically recreates dependent containers. Install it alongside vpn-gateway to avoid manual intervention after restarts or updates.
+
+> **Important:** Use the [ProphetSe7en/containernetwork-autofix](https://github.com/ProphetSe7en/containernetwork-autofix) fork — the original has parser bugs that cause it to miss containers with certain label formats.
 
 **Updating:** Change the version tag in the Repository field to the new version, then click **Apply**. Do not use `latest` — see [Pull from GHCR](#pull-from-ghcr) for why.
 
