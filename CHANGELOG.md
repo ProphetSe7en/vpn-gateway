@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.3.0-dev
+## v1.3.0
 
 ### Features
 - **Multi-service monitoring** — SABnzbd and Dispatcharr pollers alongside qBittorrent. ServicePoller interface with registry pattern for extensibility
