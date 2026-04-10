@@ -474,7 +474,7 @@ func (d *dispatcharrPoller) Details(ctx context.Context, mapping PortMapping) (a
 	defer d.mu.Unlock()
 
 	// Return cached details if still fresh — frontend polls every 5 s,
-	// so a 10 s TTL halves the API load without noticeable staleness.
+	// so a 30 s TTL means we only hit the API roughly every 6th poll.
 	if d.cachedDetails != nil {
 		if cd, ok := d.cachedDetails[mapping.Port]; ok && time.Since(cd.at) < dispatcharrDetailsTTL {
 			return cd.data, nil

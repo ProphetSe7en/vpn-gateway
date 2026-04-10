@@ -10,6 +10,11 @@
   [x-cloak] { display: none !important; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  /* Remove number input spinners globally */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="number"] { -moz-appearance: textfield; }
+
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
     background: #0f1117;
@@ -272,6 +277,38 @@
   .clr-limited { color: #d29922; }
   .clr-unlimited { color: #3fb950; }
 
+  /* Settings sidebar layout */
+  .settings-layout { display: flex; gap: 0; min-height: 400px; }
+  .settings-sidebar {
+    width: 180px; flex-shrink: 0;
+    border-right: 1px solid #30363d;
+    padding-top: 8px;
+  }
+  .settings-nav-item {
+    display: block; padding: 10px 16px;
+    font-size: 14px; color: #8b949e;
+    cursor: pointer; border-left: 3px solid transparent;
+    transition: color 0.15s, background 0.15s;
+  }
+  .settings-nav-item:hover { color: #c9d1d9; background: rgba(255,255,255,0.03); }
+  .settings-nav-active {
+    color: #c9d1d9; border-left-color: #3fb950;
+    background: rgba(255,255,255,0.04);
+  }
+  .settings-content { flex: 1; padding: 8px 0 0 24px; }
+
+  /* Small toggle variant */
+  .toggle-sm { width: 30px; height: 16px; }
+  .toggle-sm .toggle-slider { border-radius: 8px; }
+  .toggle-sm .toggle-slider::before { width: 12px; height: 12px; left: 2px; top: 2px; }
+  .toggle-sm input:checked + .toggle-slider::before { transform: translateX(14px); }
+  .settings-section-title {
+    font-size: 18px; font-weight: 600; color: #c9d1d9; margin-bottom: 6px;
+  }
+  .settings-section-desc {
+    font-size: 13px; color: #8b949e; margin-bottom: 16px; line-height: 1.5;
+  }
+
   /* Buttons */
   .btn {
     padding: 6px 14px;
@@ -496,70 +533,200 @@
   <!-- Tabs -->
   <div class="tabs">
     <div class="tab" :class="tab==='traffic' && 'tab-active'" @click="switchTab('traffic')">Traffic</div>
-    <div class="tab" :class="tab==='stats' && 'tab-active'" @click="switchTab('stats')">Stats</div>
-    <div class="tab" :class="tab==='config' && 'tab-active'" @click="switchTab('config')">Config</div>
+    <div class="tab" :class="tab==='stats' && 'tab-active'" @click="switchTab('stats')">Volume</div>
+    <div class="tab" :class="tab==='config' && 'tab-active'" @click="switchTab('config')">Settings</div>
   </div>
 
   <!-- ==================== CONFIG TAB ==================== -->
   <div x-show="tab==='config'">
+    <div class="settings-layout">
 
-  <!-- Settings -->
-  <div class="card">
-    <div class="card-title" @click="showSettings=!showSettings" style="cursor:pointer;user-select:none">
-      <span x-text="showSettings ? '&#9660;' : '&#9654;'" style="font-size:10px;margin-right:4px"></span>
-      Settings
-    </div>
-    <template x-if="showSettings">
-    <div>
-    <div class="toggle-row">
-      <label class="toggle">
-        <input type="checkbox" x-model="config.enabled">
-        <span class="toggle-slider"></span>
-      </label>
-      <span class="toggle-label">Bandwidth limiting enabled</span>
-    </div>
-    <template x-if="!config.enabled">
-      <div>
-        <div class="info-note">All traffic is unlimited. Schedule rules are ignored while disabled.</div>
-        <div class="btn-row" style="justify-content:flex-end;margin-top:8px">
-          <button class="btn btn-primary btn-sm" @click="save" :disabled="saving">
-            <span x-text="saving ? 'Saving...' : 'Save'"></span>
-          </button>
-        </div>
+      <!-- Sidebar -->
+      <div class="settings-sidebar">
+        <div class="settings-nav-item" :class="configSection==='bandwidth' && 'settings-nav-active'" @click="configSection='bandwidth'">Bandwidth</div>
+        <div class="settings-nav-item" :class="configSection==='schedule' && 'settings-nav-active'" @click="configSection='schedule'">Schedule</div>
+        <div class="settings-nav-item" :class="configSection==='services' && 'settings-nav-active'" @click="configSection='services'">Service Monitoring</div>
+        <div class="settings-nav-item" :class="configSection==='tools' && 'settings-nav-active'" @click="configSection='tools'">Tools</div>
       </div>
-    </template>
-    <template x-if="config.enabled">
-      <div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Default download (MB/s, 0 = unlimited)</label>
-            <input type="number" min="0" x-model.number="config.defaultDown">
+
+      <!-- Content -->
+      <div class="settings-content">
+
+        <!-- ===== BANDWIDTH ===== -->
+        <div x-show="configSection==='bandwidth'">
+          <div class="settings-section-title">Bandwidth Limiting</div>
+          <div class="settings-section-desc">Control download and upload speed limits for all traffic through the VPN tunnel.</div>
+
+          <div class="toggle-row">
+            <label class="toggle">
+              <input type="checkbox" x-model="config.enabled">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Bandwidth limiting enabled</span>
           </div>
-          <div class="form-group">
-            <label>Default upload (MB/s, 0 = unlimited)</label>
-            <input type="number" min="0" x-model.number="config.defaultUp">
+
+          <template x-if="!config.enabled">
+            <div class="info-note">All traffic is unlimited. Schedule rules are ignored while disabled.</div>
+          </template>
+
+          <template x-if="config.enabled">
+            <div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Default download (MB/s, 0 = unlimited)</label>
+                  <input type="number" min="0" x-model.number="config.defaultDown">
+                </div>
+                <div class="form-group">
+                  <label>Default upload (MB/s, 0 = unlimited)</label>
+                  <input type="number" min="0" x-model.number="config.defaultUp">
+                </div>
+              </div>
+              <div class="info-note" x-show="config.scheduleEnabled" style="margin-bottom:12px">
+                Default rates apply when no schedule rule is active. Schedule rules override these values when they trigger.
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Burst buffer (ms)</label>
+                  <input type="number" min="100" max="5000" x-model.number="config.burstMs">
+                  <span class="field-hint">Controls how much data can pass before rate limiting kicks in. Higher = smoother throughput but allows brief speed spikes. Default: 500ms.</span>
+                </div>
+                <div class="form-group"></div>
+              </div>
+            </div>
+          </template>
+
+          <div style="display:flex;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-primary btn-sm" @click="save" :disabled="saving">
+              <span x-text="saving ? 'Saving...' : 'Save'"></span>
+            </button>
           </div>
         </div>
-        <div class="info-note" x-show="config.scheduleEnabled" style="margin-bottom:12px">
-          Default rates apply when no schedule rule is active.
-          Schedule rules override these values when they trigger.
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Burst buffer (ms)</label>
-            <input type="number" min="100" max="5000" step="50" x-model.number="config.burstMs">
-            <span class="field-hint">Controls how much data can pass before rate limiting kicks in. Higher = smoother throughput but allows brief speed spikes. Default: 500ms.</span>
+
+        <!-- ===== SCHEDULE ===== -->
+        <div x-show="configSection==='schedule'">
+          <div class="settings-section-title">Schedule</div>
+          <div class="settings-section-desc">Define time-based rules that override the default bandwidth limits. Each rule applies from its start time until the next rule takes over.</div>
+
+          <div class="toggle-row">
+            <label class="toggle">
+              <input type="checkbox" x-model="config.scheduleEnabled">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Schedule enabled</span>
           </div>
-          <div class="form-group"></div>
-        </div>
-        <!-- Port Mappings -->
-        <div style="margin-top:16px;padding-top:16px;border-top:1px solid #30363d">
-          <div style="font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:8px">Service Monitoring</div>
-          <div style="font-size:12px;color:#8b949e;margin-bottom:10px">
-            Track per-service traffic on the Traffic tab. Enter the service's port number, pick the type, fill in credentials if required, and hit Test to verify before saving. qBittorrent needs no authentication. SABnzbd uses its API key. Dispatcharr uses its admin username/password (JWT authentication).
+
+          <template x-if="config.scheduleEnabled">
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <div style="font-size:12px;color:#8b949e">Set rate to 0 for unlimited.</div>
+                <button class="btn btn-primary btn-sm" style="flex-shrink:0" @click="addRule">Add rule</button>
+              </div>
+              <div class="rule-header">
+                <span></span>
+                <span>Time</span>
+                <span>Down MB/s</span>
+                <span>Up MB/s</span>
+                <span>Days</span>
+                <span></span>
+              </div>
+              <div class="rule-list">
+                <template x-for="(rule, idx) in config.rules" :key="idx">
+                  <div class="rule-item">
+                    <span class="rule-label" x-text="'R' + (idx+1)"></span>
+                    <div class="time-input">
+                      <input type="text" maxlength="2" placeholder="00"
+                        :value="rule.time.split(':')[0]||'00'"
+                        @blur="timeBlur($event, rule, 'h', 'from')"
+                        @focus="$event.target.select()">
+                      <span class="sep">:</span>
+                      <input type="text" maxlength="2" placeholder="00"
+                        :value="rule.time.split(':')[1]||'00'"
+                        @blur="timeBlur($event, rule, 'm', 'from')"
+                        @focus="$event.target.select()">
+                    </div>
+                    <input type="number" min="0" x-model.number="rule.down" placeholder="0">
+                    <input type="number" min="0" x-model.number="rule.up" placeholder="0">
+                    <div>
+                      <select x-show="!rule._custom && isKnownDays(rule.days)"
+                        :value="isKnownDays(rule.days)?rule.days:''"
+                        @change="if($event.target.value==='_custom'){rule._custom=true}else{rule.days=$event.target.value}">
+                        <option value="">Every day</option>
+                        <option value="mon-fri">Weekdays (mon-fri)</option>
+                        <option value="sat,sun">Weekends (sat,sun)</option>
+                        <option value="mon-thu">Mon-Thu</option>
+                        <option value="sun-thu">Sun-Thu</option>
+                        <option value="mon">Monday</option>
+                        <option value="tue">Tuesday</option>
+                        <option value="wed">Wednesday</option>
+                        <option value="thu">Thursday</option>
+                        <option value="fri">Friday</option>
+                        <option value="sat">Saturday</option>
+                        <option value="sun">Sunday</option>
+                        <option value="_custom">Custom...</option>
+                      </select>
+                      <div x-show="rule._custom || !isKnownDays(rule.days)" style="position:relative">
+                        <input type="text" x-model="rule.days" placeholder="e.g. mon,wed,fri" style="width:100%;padding-right:24px">
+                        <span @click="rule.days='';rule._custom=false" title="Clear"
+                          style="position:absolute;right:6px;top:50%;transform:translateY(-50%);cursor:pointer;color:#f85149;font-size:14px;line-height:1">&times;</span>
+                      </div>
+                    </div>
+                    <button class="btn-danger" @click="removeRule(idx)" title="Remove">&times;</button>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Effective schedule summary -->
+              <template x-if="config.rules.length > 0">
+                <div class="schedule-summary">
+                  <div class="summary-title" @click="showSummary=!showSummary" style="cursor:pointer;user-select:none">
+                    <span x-text="showSummary ? '&#9660;' : '&#9654;'" style="font-size:10px;margin-right:4px"></span>
+                    Effective schedule
+                  </div>
+                  <template x-if="showSummary">
+                    <div>
+                      <template x-for="group in effectiveSchedule" :key="group.label">
+                        <div class="day-group">
+                          <div class="day-group-label" x-text="group.label"></div>
+                          <template x-for="(slot, i) in group.slots" :key="i">
+                            <div class="summary-row">
+                              <span class="summary-time" :class="slot.limited ? 'clr-limited' : 'clr-unlimited'">
+                                <span x-text="slot.from"></span>
+                                <span class="arrow">&rarr;</span>
+                                <span x-text="slot.to"></span>
+                              </span>
+                              <span class="summary-rate" :class="slot.limited ? 'clr-limited' : 'clr-unlimited'"
+                                x-text="slot.limited ? slot.down + '/' + slot.up + ' MB/s' : 'Unlimited'"></span>
+                              <span class="summary-note" x-text="slot.note||''"></span>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+
+          <div style="display:flex;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-primary btn-sm" @click="save" :disabled="saving">
+              <span x-text="saving ? 'Saving...' : 'Save'"></span>
+            </button>
           </div>
+        </div>
+
+        <!-- ===== SERVICE MONITORING ===== -->
+        <div x-show="configSection==='services'">
+          <div class="settings-section-title">Service Monitoring</div>
+          <div class="settings-section-desc">
+            Track per-service traffic on the Traffic tab. Enter the service's port number, pick the type, and hit Test to verify before saving.
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+            <button class="btn btn-primary btn-sm" @click="config.ports.push({port:null,name:'',color:'',type:'qbittorrent'})">Add service</button>
+          </div>
+
           <template x-for="(pm, idx) in config.ports" :key="idx">
-            <div style="border:1px solid #30363d;border-radius:6px;padding:8px;margin-bottom:8px;background:#0d1117">
+            <div style="border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:8px;background:#0d1117">
               <div style="display:flex;gap:8px;align-items:center">
                 <input type="color" :value="pm.color || defaultPortColors[idx % defaultPortColors.length]"
                   @input="pm.color=$event.target.value"
@@ -580,169 +747,59 @@
               <div x-show="pm.type === 'sabnzbd'" style="display:flex;gap:8px;align-items:center;margin-top:8px">
                 <input type="password" x-model="pm.apiKey" placeholder="SABnzbd API key"
                   autocomplete="one-time-code"
-                  style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+                  style="flex:1;background:#161b22;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
                 <button class="btn btn-sm" @click="testPort(pm)">Test</button>
               </div>
               <div x-show="pm.type === 'dispatcharr'" style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
-                <div style="display:flex;gap:8px;align-items:center">
-                  <input type="text" x-model="pm.username" placeholder="Dispatcharr admin username"
+                <div style="display:flex;align-items:center;gap:8px">
+                  <label class="toggle toggle-sm">
+                    <input type="checkbox" x-model="pm.showDetails">
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span style="font-size:12px;color:#8b949e">Show active streams on Traffic tab</span>
+                </div>
+                <div x-show="pm.showDetails" style="display:flex;gap:8px;align-items:center;margin-top:2px">
+                  <input type="text" x-model="pm.username" placeholder="Admin username"
                     autocomplete="off"
-                    style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+                    style="flex:1;background:#161b22;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
                   <input type="password" x-model="pm.password" placeholder="Password"
                     autocomplete="one-time-code"
-                    style="flex:1;background:#0d1117;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+                    style="flex:1;background:#161b22;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
                   <button class="btn btn-sm" @click="testPort(pm)">Test</button>
                 </div>
-                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#8b949e;cursor:pointer">
-                  <input type="checkbox" x-model="pm.showDetails" style="cursor:pointer">
-                  Show active streams panel on Traffic tab
-                </label>
               </div>
               <!-- Test result message -->
               <div x-show="portTestMessages[pm.port]" x-text="portTestMessages[pm.port]"
                 :style="'margin-top:6px;font-size:12px;color:' + (portTestOk[pm.port] ? '#3fb950' : '#f85149')"></div>
             </div>
           </template>
-          <button class="btn btn-sm" @click="config.ports.push({port:0,name:'',color:'',type:'qbittorrent'})">+ Add service</button>
-        </div>
 
-        <!-- Reset Stats -->
-        <div style="margin-top:16px;padding-top:16px;border-top:1px solid #30363d">
-          <div style="font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:4px">Reset Statistics</div>
-          <div style="font-size:12px;color:#8b949e;margin-bottom:8px">
-            Clears all traffic history, daily volumes, and per-service totals.
-            Use this after adding port monitoring to an already-running container,
-            so per-service totals start from the same point as VPN totals.
+          <div style="display:flex;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-primary btn-sm" @click="save" :disabled="saving">
+              <span x-text="saving ? 'Saving...' : 'Save'"></span>
+            </button>
           </div>
-          <button class="btn btn-sm" style="color:#f85149;border-color:#f85149"
-            @click="confirmModal = { show: true, title: 'Reset All Stats', message: 'Reset all traffic statistics?\n\nThis clears history, daily volumes, and per-service totals. This cannot be undone.', confirmLabel: 'Reset', onConfirm: () => resetStats() }">Reset All Stats</button>
         </div>
 
-        <div class="btn-row" style="justify-content:flex-end;margin-top:12px">
-          <button class="btn btn-primary btn-sm" @click="save" :disabled="saving">
-            <span x-text="saving ? 'Saving...' : 'Save'"></span>
-          </button>
-        </div>
-      </div>
-    </template>
-    </div>
-    </template>
-  </div>
+        <!-- ===== TOOLS ===== -->
+        <div x-show="configSection==='tools'">
+          <div class="settings-section-title">Tools</div>
+          <div class="settings-section-desc">Maintenance and diagnostic tools.</div>
 
-  <!-- Schedule -->
-  <div class="card" x-show="config.enabled">
-    <div class="card-title" @click="showSchedule=!showSchedule" style="cursor:pointer;user-select:none">
-      <span x-text="showSchedule ? '&#9660;' : '&#9654;'" style="font-size:10px;margin-right:4px"></span>
-      Schedule
-    </div>
-    <div x-show="showSchedule">
-    <div class="toggle-row">
-      <label class="toggle">
-        <input type="checkbox" x-model="config.scheduleEnabled">
-        <span class="toggle-slider"></span>
-      </label>
-      <span class="toggle-label">Schedule enabled</span>
-    </div>
-
-    <template x-if="config.scheduleEnabled">
-      <div>
-        <div style="font-size:12px;color:#8b949e;margin-bottom:12px">Each rule applies from its start time until the next rule takes over. Set rate to 0 for unlimited.</div>
-        <div class="rule-header">
-          <span></span>
-          <span>Time</span>
-          <span>Down MB/s</span>
-          <span>Up MB/s</span>
-          <span>Days</span>
-          <span></span>
-        </div>
-        <div class="rule-list">
-          <template x-for="(rule, idx) in config.rules" :key="idx">
-            <div class="rule-item">
-              <span class="rule-label" x-text="'R' + (idx+1)"></span>
-              <div class="time-input">
-                <input type="text" maxlength="2" placeholder="00"
-                  :value="rule.time.split(':')[0]||'00'"
-                  @blur="timeBlur($event, rule, 'h', 'from')"
-                  @focus="$event.target.select()">
-                <span class="sep">:</span>
-                <input type="text" maxlength="2" placeholder="00"
-                  :value="rule.time.split(':')[1]||'00'"
-                  @blur="timeBlur($event, rule, 'm', 'from')"
-                  @focus="$event.target.select()">
-              </div>
-              <input type="number" min="0" x-model.number="rule.down" placeholder="0">
-              <input type="number" min="0" x-model.number="rule.up" placeholder="0">
-              <div>
-                <select x-show="!rule._custom && isKnownDays(rule.days)"
-                  :value="isKnownDays(rule.days)?rule.days:''"
-                  @change="if($event.target.value==='_custom'){rule._custom=true}else{rule.days=$event.target.value}">
-                  <option value="">Every day</option>
-                  <option value="mon-fri">Weekdays (mon-fri)</option>
-                  <option value="sat,sun">Weekends (sat,sun)</option>
-                  <option value="mon-thu">Mon-Thu</option>
-                  <option value="sun-thu">Sun-Thu</option>
-                  <option value="mon">Monday</option>
-                  <option value="tue">Tuesday</option>
-                  <option value="wed">Wednesday</option>
-                  <option value="thu">Thursday</option>
-                  <option value="fri">Friday</option>
-                  <option value="sat">Saturday</option>
-                  <option value="sun">Sunday</option>
-                  <option value="_custom">Custom...</option>
-                </select>
-                <div x-show="rule._custom || !isKnownDays(rule.days)" style="position:relative">
-                  <input type="text" x-model="rule.days" placeholder="e.g. mon,wed,fri" style="width:100%;padding-right:24px">
-                  <span @click="rule.days='';rule._custom=false" title="Clear"
-                    style="position:absolute;right:6px;top:50%;transform:translateY(-50%);cursor:pointer;color:#f85149;font-size:14px;line-height:1">&times;</span>
-                </div>
-              </div>
-              <button class="btn-danger" @click="removeRule(idx)" title="Remove">&times;</button>
+          <div>
+            <div style="font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:4px">Reset Statistics</div>
+            <div style="font-size:12px;color:#8b949e;margin-bottom:8px">
+              Clears all traffic history, daily volumes, and per-service totals.
+              Use this after adding port monitoring to an already-running container,
+              so per-service totals start from the same point as VPN totals.
             </div>
-          </template>
-        </div>
-        <div class="btn-row" style="justify-content:space-between">
-          <button class="btn btn-sm" @click="addRule">+ Add rule</button>
-          <button class="btn btn-primary btn-sm" @click="save" :disabled="saving">
-            <span x-text="saving ? 'Saving...' : 'Save'"></span>
-          </button>
-        </div>
-
-        <!-- Effective schedule summary -->
-        <template x-if="config.rules.length > 0">
-          <div class="schedule-summary">
-            <div class="summary-title" @click="showSummary=!showSummary" style="cursor:pointer;user-select:none">
-              <span x-text="showSummary ? '&#9660;' : '&#9654;'" style="font-size:10px;margin-right:4px"></span>
-              Effective schedule
-            </div>
-            <template x-if="showSummary">
-              <div>
-                <template x-for="group in effectiveSchedule" :key="group.label">
-                  <div class="day-group">
-                    <div class="day-group-label" x-text="group.label"></div>
-                    <template x-for="(slot, i) in group.slots" :key="i">
-                      <div class="summary-row">
-                        <span class="summary-time" :class="slot.limited ? 'clr-limited' : 'clr-unlimited'">
-                          <span x-text="slot.from"></span>
-                          <span class="arrow">&rarr;</span>
-                          <span x-text="slot.to"></span>
-                        </span>
-                        <span class="summary-rate" :class="slot.limited ? 'clr-limited' : 'clr-unlimited'"
-                          x-text="slot.limited ? slot.down + '/' + slot.up + ' MB/s' : 'Unlimited'"></span>
-                        <span class="summary-note" x-text="slot.note||''"></span>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-              </div>
-            </template>
+            <button class="btn btn-sm" style="color:#f85149;border-color:#f85149"
+              @click="confirmModal = { show: true, title: 'Reset All Stats', message: 'Reset all traffic statistics?\n\nThis clears history, daily volumes, and per-service totals. This cannot be undone.', confirmLabel: 'Reset', onConfirm: () => resetStats() }">Reset All Stats</button>
           </div>
-        </template>
-      </div>
-    </template>
-    </div>
-  </div>
+        </div>
 
-
+      </div><!-- end settings-content -->
+    </div><!-- end settings-layout -->
   </div><!-- end config tab -->
 
   <!-- ==================== TRAFFIC TAB ==================== -->
@@ -1081,8 +1138,7 @@ function app() {
     gwName: 'VPN Gateway',
     appVersion: '',
     saving: false,
-    showSettings: false,
-    showSchedule: true,
+    configSection: 'bandwidth',
     showSummary: true,
     toast: { show: false, msg: '', type: '' },
     confirmModal: { show: false, title: '', message: '', confirmLabel: '', onConfirm: null, onCancel: null },
