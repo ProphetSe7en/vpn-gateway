@@ -10,7 +10,7 @@ if ! wg show wg0 latest-handshakes 2>/dev/null | grep -q '[0-9]'; then
 fi
 
 # Check web UI responds
-if ! curl -fsS -m 5 "http://localhost:${PORT}/api/stats/latest" > /dev/null 2>&1; then
+if ! curl -fsS -m 5 "http://localhost:${PORT}/api/health" > /dev/null 2>&1; then
     echo "UNHEALTHY: web UI not responding"
     exit 1
 fi
