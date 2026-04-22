@@ -1,5 +1,64 @@
 # Changelog
 
+## v1.4.0
+
+**⚠️ Breaking change:** Authentication is now enabled by default (Forms + "Disabled for Trusted Networks", matching the Radarr/Sonarr pattern). On first run after upgrade, vpn-gateway redirects to `/setup` to create an admin username and password. Homepage widgets hitting `/api/stats/widget` continue to work without auth (the widget endpoint is explicitly public — no secrets, no enumeration); other `/api/*` endpoints now require the API key (Settings → Security) sent as `X-Api-Key` header.
+
+### Added
+
+- **Authentication (Radarr/Sonarr pattern)** — `/config/auth.json` stores the bcrypt-hashed password + API key. Three modes:
+  - `forms` (default): login page + session cookie, 30-day TTL
+  - `basic`: HTTP Basic behind a reverse proxy
+  - `none`: auth disabled (requires password-confirm to enable — catastrophic blast radius)
+- **Authentication Required** — `enabled` (every request needs auth) or `disabled_for_local_addresses` (default — LAN bypasses)
+- **Trusted Networks** — user-configurable CIDR list of what counts as "local". Empty = Radarr-parity defaults (10/8, 172.16/12, 192.168/16, link-local, IPv6 ULA, loopback). Narrow the list (`192.168.86.0/24`, `192.168.86.22/32`) for tighter control
+- **Trusted Proxies** — required when vpn-gateway sits behind a reverse proxy so `X-Forwarded-For` is trusted
+- **Env-var override for trust-boundary config** — set `TRUSTED_NETWORKS` and/or `TRUSTED_PROXIES` in the Unraid template or `docker-compose.yml` to pin values at host level. When set, the UI shows the field as locked and rejects edits — the trust boundary can only be changed by editing the template and restarting
+- **API key** — auto-generated on first setup, rotatable from the Security panel. Send as `X-Api-Key: <key>` header (preferred) or `?apikey=<key>` query param (legacy — leaks to access logs). For Homepage widgets, scripts, Uptime Kuma
+- **Change password** — from the Security panel. Requires current password. Invalidates all other sessions
+- **CSRF protection** — double-submit cookie pattern on all state-mutating requests. Transparent to browser users; API key requests bypass
+- **Security headers** — `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`
+- **Security panel in Settings** — mode/Required dropdowns, Trusted Networks + Trusted Proxies inputs (disabled + amber banner when env-locked), Session TTL, API key view/copy/regenerate, Change Password, Disable-auth modal (requires current password), no-auth warning banner at top of UI when `authentication=none`
+- **Credential masking** on `/api/config` — qBittorrent passwords, Dispatcharr password, SABnzbd API key round-trip as `********`. Empty-on-unchanged-edit preserves stored value on save
+- **Public health endpoint** — `/api/health` returns `{"ok":true}` with no auth, for Docker HEALTHCHECK / Uptime-Kuma / reverse-proxy probes
+- **Public stats widget** — `/api/stats/widget` stays public so existing Homepage installs keep working after upgrade (same risk profile as `/api/health` — no secrets, no enumeration)
+
+### Changed
+
+- **Base image** — hotio/base:alpinevpn bumped from the 2026-02-23 pin to 2026-04-17 (Alpine 3.21→3.22 refresh + service-pia / service-healthcheck 4-space indent fix upstream)
+- **Go toolchain** — 1.25 + toolchain 1.25.9
+- **Go UI package layout** — flat `ui/` split into `ui/{auth,netsec}/` subpackages; `safego` / `atomic` helpers for panic recovery and safe file writes
+- **Cookie names** — new `vpngw_session` + `vpngw_csrf` (no prior sessions exist for auth, so no break)
+
+### Security
+
+- First-run forces the `/setup` wizard — no default credentials
+- bcrypt cost 12; password verify is timing-equalized (prevents user-enumeration via response timing)
+- Session persistence via atomic write to `/config/sessions.json` (survives container restart). Session cleanup goroutine wrapped in `safeGo` so a panic can't kill the process
+- CIDR min-mask enforced (`/8` IPv4, `/16` IPv6) to reject mis-typed host bits masking as subnets
+- Atomic writes on all state files (`/config/.traffic-ui.json` at 0600, `/config/.traffic-stats.json` at 0644) with crypto/rand-suffixed tmp + rename (trap T71) so two concurrent writers can't corrupt each other
+- Log-injection guards on user-supplied strings that reach `log.Printf`
+- `Cache-Control: no-store` on every `/api/*` response
+- Generic 400 on JSON parse errors — raw `json.Unmarshal` error strings leaked byte offsets and field names in prior versions
+- Concurrent PUT `/api/config` serialized with a mutex so two admin saves can't lose each other's updates
+- Full audit trail in `docs/security-implementation-baseline.md` T1–T80
+
+### Fixed
+
+- **First-boot race** — `svc-webui` now depends on `svc-traffic` in s6-rc so the UI process cannot start before `traffic.conf` is seeded. Previously a lucky scheduler ordering produced a crash-loop on fresh installs
+- **Env-lock reject-on-no-change** — partial PUTs (Bandwidth / Schedule / Security saves) no longer 403 when `TRUSTED_NETWORKS` / `TRUSTED_PROXIES` env var is set but the on-disk value differs. Env-locked fields now accept submissions that match EITHER the effective value OR the existing on-disk value
+- **Test button for saved ports** — `POST /api/test-port` now resolves the `********` credential-mask sentinel by looking up the port in the on-disk config. Before: every "Test" click on a saved entry failed with auth error, even when stored credentials were correct
+- **Session-expiry mid-edit** — saves, API-key regeneration, and password change now redirect to `/login` on 401 instead of showing a generic "Failed to save" toast. Handled centrally in the fetch wrapper so ~50 API call sites across the UI inherit the behavior without per-call boilerplate
+
+### Notes for upgraders
+
+- First boot redirects to `/setup`. Choose a strong password (≥10 chars, 2+ of upper/lower/digit/symbol)
+- If you access vpn-gateway from the same LAN the host is on, the default "Disabled for Trusted Networks" mode will skip login for you — no change in day-to-day UX
+- Homepage widget pointing at `/api/stats/widget` keeps working — endpoint stays public
+- Homepage widget pointing at any other `/api/*` endpoint: add the API key from Settings → Security, send as `X-Api-Key` header
+- Lost your password: stop the container, delete `/config/auth.json` (credentials only — no schedule / bandwidth data), restart. The setup wizard will run again
+- Env-lock your trust boundary in the Unraid template: add `TRUSTED_NETWORKS` with your LAN CIDR and `TRUSTED_PROXIES` with your reverse-proxy IP. UI will show both fields as locked with an amber banner so misconfigs are obvious
+
 ## v1.3.0
 
 ### Features
