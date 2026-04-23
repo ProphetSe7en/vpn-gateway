@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.4.1
+
+Patch release for two issues surfaced right after v1.4.0 rolled out.
+
+### Fixed
+
+- **Saving any Settings panel no longer 400's when a monitored port has a masked secret.** Reported pattern: user changes VPN IP Badge dropdown → Save → "Validation error: port N (SABnzbd): API key must be entered, not the masked placeholder". Root cause: `handlePutConfig`'s unmask loop matched existing ports strictly by `Port` int. If the Port in the submitted body didn't round-trip cleanly (parsed as 0, or the user edited a port number in the same save), the lookup missed and the `********` sentinel reached `ValidateConfig`, which correctly rejected it. Fix: three-tier match in the unmask loop — Port int → Name → positional index. Any port with a matching prior entry gets its masked credentials resolved before validation runs. New ports (no match on any strategy) still fail validation as intended, so the "genuinely-new-port-with-mask" error path is preserved.
+
+### Changed
+
+- **Toast notifications moved from bottom-right to top-center.** Matches Clonarr's pattern. Bottom-right was easy to miss on wide screens when the user's focus was mid-page — top-center puts success/error feedback right where the user is already looking. No behaviour change beyond position + slightly larger shadow for visibility against the main content.
+
 ## v1.4.0
 
 **⚠️ Breaking change:** Authentication is now enabled by default (Forms + "Disabled for Trusted Networks", matching the Radarr/Sonarr pattern). On first run after upgrade, vpn-gateway redirects to `/setup` to create an admin username and password. Homepage widgets hitting `/api/stats/widget` continue to work without auth (the widget endpoint is explicitly public — no secrets, no enumeration); other `/api/*` endpoints now require the API key (Settings → Security) sent as `X-Api-Key` header.

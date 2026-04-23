@@ -3,7 +3,7 @@ FROM golang:1.25.9-alpine AS builder
 WORKDIR /build
 COPY ui/ .
 RUN go mod download
-ARG APP_VERSION=1.4.0
+ARG APP_VERSION=1.4.1
 RUN CGO_ENABLED=0 go build -o vpn-gateway-ui -ldflags="-s -w -X main.Version=${APP_VERSION}" .
 
 # --- Stage 2: Runtime ---

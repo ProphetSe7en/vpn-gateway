@@ -360,20 +360,25 @@
     margin-top: 12px;
   }
 
-  /* Feedback */
+  /* Feedback — matches Clonarr's top-center toast pattern so feedback is
+     always visible in the primary reading zone. Bottom-right was easy to
+     miss on wide screens when focus was mid-page. */
   .toast {
     position: fixed;
-    bottom: 24px;
-    right: 24px;
-    padding: 10px 20px;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 18px;
     border-radius: 8px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
-    z-index: 100;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    max-width: 520px;
     transition: opacity 0.3s;
   }
-  .toast-success { background: #1a3a2a; color: #3fb950; border: 1px solid #2ea043; }
-  .toast-error { background: #3a1a1a; color: #f85149; border: 1px solid #f85149; }
+  .toast-success { background: #0d2818; color: #3fb950; border: 1px solid #238636; }
+  .toast-error { background: #3d1f1f; color: #f85149; border: 1px solid #f85149; }
 
   /* Modal */
   .modal-overlay {
