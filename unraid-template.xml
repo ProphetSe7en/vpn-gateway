@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>vpn-gateway</Name>
-  <Repository>ghcr.io/prophetse7en/vpn-gateway:v1.4.0</Repository>
+  <Repository>ghcr.io/prophetse7en/vpn-gateway:v1.4.1</Repository>
   <Registry>https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway</Registry>
   <Branch>
-    <Tag>v1.4.0</Tag>
+    <Tag>v1.4.1</Tag>
     <TagDescription>Stable release (recommended)</TagDescription>
   </Branch>
   <Branch>
@@ -23,8 +23,10 @@
   <Category>Network:</Category>
   <TemplateURL>https://raw.githubusercontent.com/prophetse7en/unraid-templates/main/vpn-gateway.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/prophetse7en/vpn-gateway/main/icon.png</Icon>
-  <Date>2026-04-22</Date>
+  <Date>2026-04-23</Date>
   <Changes>
+### 2026-04-23
+- v1.4.1: Fix — saving any Settings panel no longer 400's when a monitored port has a masked credential (the "API key must be entered" error after v1.4.0 for users with SABnzbd or similar configured). Toast notifications moved to top-center for visibility on wide screens.
 ### 2026-04-22
 - v1.4.0: **Breaking change** — authentication now required, first boot redirects to /setup. Login + password (bcrypt), API key for Homepage/scripts, CSRF, Trusted Networks with env-var lock, credential masking on /api/config, atomic writes, generic 400 on malformed JSON. Full audit trail T1–T80 in docs/security-implementation-baseline.md. Homepage widget endpoint (/api/stats/widget) stays public so existing installs keep working. Base image bumped to alpinevpn 2026-04-17 (Alpine 3.21→3.22). Lost password: stop container, delete /config/auth.json, restart — setup wizard runs again.
 ### 2026-04-11
