@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>vpn-gateway</Name>
-  <Repository>ghcr.io/prophetse7en/vpn-gateway:v1.3.0</Repository>
+  <Repository>ghcr.io/prophetse7en/vpn-gateway:v1.4.0</Repository>
   <Registry>https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway</Registry>
   <Branch>
-    <Tag>v1.3.0</Tag>
+    <Tag>v1.4.0</Tag>
     <TagDescription>Stable release (recommended)</TagDescription>
   </Branch>
   <Branch>
@@ -23,8 +23,19 @@
   <Category>Network:</Category>
   <TemplateURL>https://raw.githubusercontent.com/prophetse7en/unraid-templates/main/vpn-gateway.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/prophetse7en/vpn-gateway/main/icon.png</Icon>
-  <Overview>VPN gateway with nftables bandwidth limiting, scheduling, hot-reload, and web UI. Built on hotio/base:alpinevpn — all hotio VPN features (WireGuard, PIA, Proton) work out of the box. Route containers through WireGuard with per-service rate limits, time-based rules, and real-time traffic monitoring.</Overview>
-  <Requires>Click Show more settings for all VPN variables. Generic provider requires a WireGuard config in /config/wireguard/wg0.conf. PIA/Proton auto-configure with credentials.</Requires>
+  <Date>2026-04-22</Date>
+  <Changes>
+### 2026-04-22
+- v1.4.0: **Breaking change** — authentication now required, first boot redirects to /setup. Login + password (bcrypt), API key for Homepage/scripts, CSRF, Trusted Networks with env-var lock, credential masking on /api/config, atomic writes, generic 400 on malformed JSON. Full audit trail T1–T80 in docs/security-implementation-baseline.md. Homepage widget endpoint (/api/stats/widget) stays public so existing installs keep working. Base image bumped to alpinevpn 2026-04-17 (Alpine 3.21→3.22). Lost password: stop container, delete /config/auth.json, restart — setup wizard runs again.
+### 2026-04-11
+- v1.3.0: Multi-service monitoring — SABnzbd + Dispatcharr pollers alongside qBit. Dispatcharr Active Streams panel. nft byte counters for real-time Dispatcharr traffic without API spam. Settings sidebar redesign (Bandwidth / Schedule / Service Monitoring / Tools). Stats tab renamed Volume. Custom confirm modal. Multi-arch builds (amd64 + arm64).
+### 2026-03-15
+- v1.2.14: Homepage widget endpoint — /api/stats/widget returns pre-formatted dl/ul speeds + totals + daily values for Homepage dashboards.
+- v1.2.13: UI remembers last selected tab across reloads.
+- v1.2.12: Fix — container shutdown no longer waits the full 10s stop timeout.
+  </Changes>
+  <Overview>VPN gateway with nftables bandwidth limiting, scheduling, hot-reload, and web UI. Built on hotio/base:alpinevpn — all hotio VPN features (WireGuard, PIA, Proton) work out of the box. Route containers through WireGuard with per-service rate limits, time-based rules, and real-time traffic monitoring. First boot redirects to /setup to create an admin account — Radarr/Sonarr-style auth with API key for Homepage/scripts.</Overview>
+  <Requires>Click Show more settings for all VPN variables. Generic provider requires a WireGuard config in /config/wireguard/wg0.conf. PIA/Proton auto-configure with credentials. First container start redirects to /setup — set a strong admin password (≥10 chars, 2+ of upper/lower/digit/symbol). Homepage widget uses /api/stats/widget (public, no auth needed); other /api/ endpoints need X-Api-Key header from Settings → Security.</Requires>
   <WebUI>http://[IP]:[PORT:6050]</WebUI>
   <ExtraParams>--hostname=vpn-gateway.internal --cap-add=NET_ADMIN</ExtraParams>
   <PostArgs/>
@@ -53,4 +64,7 @@
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="Container Variable: PUID" Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Container Variable: PGID" Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="UMASK" Target="UMASK" Default="002" Mode="" Description="Container Variable: UMASK" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <!-- Trust-boundary lock (Advanced). When set, the matching field in the Security panel is shown as locked and the UI cannot change it. -->
+  <Config Name="TRUSTED_NETWORKS" Target="TRUSTED_NETWORKS" Default="" Mode="" Description="Optional: pin the Trusted Networks CIDR list at host level. Comma-separated list (e.g. 192.168.86.0/24, 192.168.86.22/32). When set, overrides the UI value and the UI field is locked. Leave empty to manage from the Security panel." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="TRUSTED_PROXIES" Target="TRUSTED_PROXIES" Default="" Mode="" Description="Optional: pin the Trusted Proxies list at host level for reverse-proxy deployments (SWAG, Authelia). Comma-separated list of proxy IPs that are allowed to set X-Forwarded-For. When set, overrides the UI value and the UI field is locked." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 </Container>

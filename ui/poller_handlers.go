@@ -116,6 +116,31 @@ func (app *App) handleTestPort(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Credential mask resolution: /api/config masks Password/APIKey as
+	// credentialMask on GET, so when the user clicks "Test" without
+	// re-entering secrets, the UI sends the sentinel back. Without this
+	// merge, Verify/Poll would authenticate with the literal "********"
+	// and fail even when stored credentials are correct. Mirror
+	// handlePutConfig's merge: look up the port by number in on-disk
+	// config and swap the sentinel for the real value.
+	if mapping.Password == credentialMask || mapping.APIKey == credentialMask {
+		existing, err := loadConfig(app.configPath)
+		if err == nil && existing != nil {
+			for _, pm := range existing.Ports {
+				if pm.Port != mapping.Port {
+					continue
+				}
+				if mapping.Password == credentialMask {
+					mapping.Password = pm.Password
+				}
+				if mapping.APIKey == credentialMask {
+					mapping.APIKey = pm.APIKey
+				}
+				break
+			}
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	w.Header().Set("Content-Type", "application/json")

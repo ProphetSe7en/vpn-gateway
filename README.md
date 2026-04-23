@@ -38,10 +38,10 @@ docker build -t vpn-gateway:latest .
 
 > **⚠️ Use a pinned version tag, not `latest`.** This container manages your VPN and network routing — if an update introduces breaking changes, every container routed through it (qBittorrent, etc.) loses connectivity and won't recover until vpn-gateway is fixed or rolled back. Pin to a version and update manually when you're ready.
 
-**Latest version: `v1.3.0`** — [all tags](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
+**Latest version: `v1.4.0`** — [all tags](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
 
 ```bash
-docker pull ghcr.io/prophetse7en/vpn-gateway:v1.3.0
+docker pull ghcr.io/prophetse7en/vpn-gateway:v1.4.0
 ```
 
 ### Run
@@ -59,10 +59,12 @@ docker run -d \
   -p 6050:6050 \
   -e VPN_EXPOSE_PORTS_ON_LAN=6050/tcp \
   -e PRIVNET=192.168.86.0/24 \
-  ghcr.io/prophetse7en/vpn-gateway:v1.3.0
+  ghcr.io/prophetse7en/vpn-gateway:v1.4.0
 ```
 
 On first start, a default `traffic.conf` is created in `/config/` with all options documented.
+
+**First-run setup:** vpn-gateway redirects to `/setup` on first visit to create an admin account. See [Authentication](#authentication) below.
 
 ## Web UI
 
@@ -70,7 +72,7 @@ The web UI is available on port **6050**. To enable it:
 
 1. Map port 6050 in your container config (`-p 6050:6050`)
 2. Add `6050/tcp` to `VPN_EXPOSE_PORTS_ON_LAN` so hotio's firewall allows LAN access
-3. Open `http://<server-ip>:6050` in your browser
+3. Open `http://<server-ip>:6050` in your browser — first visit redirects to `/setup` to create an admin account
 
 The UI has three tabs:
 - **Traffic** — real-time throughput graph, per-service breakdown, Active Streams panel (Dispatcharr)
@@ -80,6 +82,84 @@ The UI has three tabs:
 Changes saved via the UI are written to both `/config/.traffic-ui.json` (UI model) and `/config/traffic.conf` (bash config). The config watcher picks up changes within 10 seconds.
 
 You can also edit `traffic.conf` manually — the UI reads whichever file is newer.
+
+## Authentication
+
+As of `v1.4.0`, vpn-gateway requires a login before you can reach the web UI. The model mirrors Radarr/Sonarr's Security panel.
+
+**Authentication** — how users log in:
+- **Forms (login page)** *(default)* — standard username/password form + session cookie (30-day TTL).
+- **Basic** — HTTP Basic Auth (browser popup). Use this only when a reverse proxy in front is already handling login.
+- **None** — disables auth entirely. **Requires password confirmation to enable** because the blast radius is catastrophic: anyone who reaches the port is admin and can change rules, disable shaping, see credentials. Only safe on a host unreachable from other devices.
+
+**Authentication Required** — who must log in:
+- **Disabled for Trusted Networks** *(default)* — devices on the "trusted" CIDR list skip the login page. Convenient for LAN-only deployments.
+- **Enabled (all traffic)** — every request needs credentials, even from your own LAN.
+
+### First-run setup
+
+1. Open `http://your-host:6050` — you'll be redirected to `/setup`
+2. Create an admin username and password (min 10 characters, 2+ of upper/lower/digit/symbol)
+3. You're logged in automatically and land in the main UI
+
+Credentials are bcrypt-hashed (cost 12) and stored in `/config/auth.json`. Sessions persist across container restarts via `/config/sessions.json`.
+
+### Trusted Networks
+
+By default "trusted" means all private IPv4 + IPv6 ranges (RFC1918, link-local, ULA, loopback — Radarr-parity). **Anything in this list gets full admin access without a password** — that includes every other container on your Docker host and every device on your home WiFi.
+
+To tighten: go to **Settings → Security** and list specific IPs/CIDRs:
+- `192.168.86.0/24` — whole home VLAN
+- `10.66.0.0/24` — WireGuard tunnel
+- `192.168.86.22/32` — a single device
+
+Loopback (`127.x`) is always trusted so Docker healthchecks work regardless of this list.
+
+**Host-level lockdown:** set the `TRUSTED_NETWORKS` env var in your Unraid template or `docker-compose.yml` (same place as `VPN_ENABLED`, `VPN_CONF`, etc.) with the same comma-separated CIDR format. When set, the UI field is disabled with an amber banner — the trust boundary can only be changed by editing the template and restarting. Defends against UI-takeover attackers (session hijack, XSS, local-bypass peer).
+
+### API Key
+
+Every install gets an API key (visible in **Settings → Security**, rotatable). Send it on requests as:
+
+```
+X-Api-Key: <your-key>
+```
+
+or as a query parameter (legacy — leaks to access logs and browser history):
+
+```
+?apikey=<your-key>
+```
+
+Use this for scripts, Uptime Kuma, and any `/api/*` endpoint. API-key auth bypasses both the login requirement and CSRF protection.
+
+**Exceptions — public endpoints (no auth needed):**
+- `/api/health` — liveness probe for Docker HEALTHCHECK, Uptime Kuma, reverse-proxy health tests. Returns `{"ok":true}`.
+- `/api/stats/widget` — formatted aggregate stats for Homepage. Same risk profile as `/api/health` (no secrets, no enumeration), kept public so existing Homepage installs keep working after the v1.4.0 upgrade without re-configuring.
+
+### Homepage widget
+
+The Homepage widget described below keeps working with no changes — `/api/stats/widget` is in the public-endpoint list above.
+
+### Reverse-proxy deployment
+
+Behind SWAG / Authelia / Traefik / Caddy that terminates TLS:
+1. Set **Trusted Proxies** to the proxy's IP (or use `TRUSTED_PROXIES` env var to lock at host level — same format as `TRUSTED_NETWORKS`).
+2. Ensure the proxy sends `X-Forwarded-For` and `X-Forwarded-Proto: https`.
+3. Pick either **Forms** (vpn-gateway handles login) or **Basic** (reverse proxy handles login upstream).
+
+vpn-gateway only trusts `X-Forwarded-*` headers when the direct peer IP matches a configured Trusted Proxy — prevents header spoofing from other containers on the same bridge network.
+
+### Lost password recovery
+
+No email reset flow — by design, `/config/auth.json` is authoritative. To recover:
+
+1. Stop the container
+2. Delete `/config/auth.json` (credentials only — your schedule, bandwidth config, and traffic stats all live in `/config/traffic.conf`, `/config/.traffic-ui.json`, and `/config/.traffic-stats.json`, untouched)
+3. Start the container
+4. Open the web UI — you'll be redirected to `/setup` again to create new credentials
+
+This is safe on a machine where you have `/config` access. If someone ELSE can delete that file, they can also take over vpn-gateway — which is expected behavior for a local admin tool.
 
 ## Configuration
 
@@ -239,7 +319,7 @@ Route one or more qBittorrent containers through the VPN gateway so all torrent 
 
 **Install via Community Apps:** Search for **vpn gateway** (without hyphen) in the Apps tab — click Install and configure your WireGuard settings.
 
-**Or install manually:** Go to **Docker** → **Add Container**, set Repository to `ghcr.io/prophetse7en/vpn-gateway:v1.3.0`, and add the required paths, ports, and capabilities (see above).
+**Or install manually:** Go to **Docker** → **Add Container**, set Repository to `ghcr.io/prophetse7en/vpn-gateway:v1.4.0`, and add the required paths, ports, and capabilities (see above).
 
 The Web UI is available at `http://your-unraid-ip:6050`.
 

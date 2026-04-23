@@ -561,14 +561,8 @@ func (tc *TrafficCollector) saveToDisk() {
 		return
 	}
 
-	tmpPath := persistPath + ".tmp"
-	if err := os.WriteFile(tmpPath, jsonData, 0664); err != nil {
-		log.Printf("Failed to write traffic stats: %v", err)
-		return
-	}
-	if err := os.Rename(tmpPath, persistPath); err != nil {
-		os.Remove(tmpPath)
-		log.Printf("Failed to rename traffic stats: %v", err)
+	if err := atomicWriteFile(persistPath, jsonData, 0644); err != nil {
+		log.Printf("Failed to persist traffic stats: %v", err)
 	}
 }
 
@@ -720,7 +714,7 @@ func (tc *TrafficCollector) syncPortCounters() {
 			pc.baseTx = old.baseTx
 		}
 		if canUseNft {
-			log.Printf("  %s (:%d) — using nft byte counters", pm.Name, pm.Port)
+			log.Printf("  %s (:%d) — using nft byte counters", sanitizeLogField(pm.Name), pm.Port)
 		}
 		tc.portCounters[i] = pc
 	}

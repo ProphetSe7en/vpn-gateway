@@ -308,6 +308,22 @@
   .settings-section-desc {
     font-size: 13px; color: #8b949e; margin-bottom: 16px; line-height: 1.5;
   }
+  /* Security panel — borrows Clonarr's row layout + dark input styling
+     so the visual language matches across the fleet. */
+  .setting-row { display: flex; align-items: flex-start; padding: 10px 0; }
+  .setting-row + .setting-row { border-top: 1px solid #21262d; }
+  .setting-label { width: 160px; font-size: 13px; color: #aaa; flex-shrink: 0; padding-top: 6px; }
+  .setting-value { flex: 1; }
+  .setting-help { font-size: 12px; color: #8b949e; margin-top: 6px; line-height: 1.5; }
+  .setting-help code { background: #161b22; padding: 1px 5px; border-radius: 3px; font-size: 11px; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; color: #c9d1d9; }
+  .input { background: #0d1117; border: 1px solid #30363d; color: #e1e4e8; padding: 6px 10px; border-radius: 6px; font-size: 13px; width: 100%; box-sizing: border-box; }
+  .input:focus { outline: none; border-color: #58a6ff; }
+  .input:disabled { opacity: 0.6; cursor: not-allowed; }
+  select.input { cursor: pointer; }
+  /* Placeholder text on dark inputs — browser default renders nearly
+     black, which is unreadable. #8b949e matches our .setting-help hint
+     colour for consistency. */
+  input::placeholder, textarea::placeholder { color: #8b949e; opacity: 1; }
 
   /* Buttons */
   .btn {
@@ -461,10 +477,76 @@
     font-size: 12px;
     color: #484f58;
   }
+
+  /* IP / Port info row under the Current Status card-title. Flex so the
+     IP cell + port cell + each value render inline and wrap gracefully
+     on narrow viewports. .vpngw-info-value is non-interactive so the
+     browser's built-in IP linkifier / extensions can't wrap an IP in an
+     <a> and hijack the click — !important defeats user-agent / extension-
+     injected link styles. */
+  .vpngw-info-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #21262d;
+    font-size: 13px;
+  }
+  .vpngw-info-cell {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .vpngw-info-label {
+    color: #8b949e;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .vpngw-info-value {
+    background: transparent !important;
+    color: #3fb950 !important;
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace !important;
+    text-decoration: none !important;
+    cursor: default !important;
+    pointer-events: none !important;
+    font-size: 13px;
+    padding: 0;
+  }
+  /* Recently-changed values (within last 48 h) render in amber so the
+     user notices the rotation / reconnect at a glance. The colour class
+     wins over the default green via the !important above being on the
+     base rule and the override here also being !important. */
+  .vpngw-info-value.vpngw-changed {
+    color: #d29922 !important;
+  }
+  /* Multi-port comma separator — adds ", " after each value except the
+     last one in the same parent cell. Cleaner than putting a literal
+     comma in the template (which would also show after a hidden value). */
+  .vpngw-info-cell .vpngw-info-value:not(:last-child)::after {
+    content: ',';
+    color: #8b949e;
+    pointer-events: none;
+    margin-left: -2px;
+  }
 </style>
 </head>
 <body>
 <div class="container" x-data="app()" x-init="init()" x-cloak>
+
+  <!-- No-auth warning banner — dismissible per-browser. Server logs a
+       warning every 60s regardless of dismissal. -->
+  <div x-show="authStatus.authentication === 'none' && !noAuthBannerDismissed" x-cloak
+       style="background:#5a1f1f;border-bottom:2px solid #8b2d2d;color:#ffdada;padding:10px 16px;margin:-20px -20px 20px;display:flex;align-items:center;gap:12px;font-size:13px;font-weight:500">
+    <span style="flex:1;text-align:center">
+      ⚠️ Authentication is disabled — anyone who reaches this URL is admin. Set Authentication to Forms or Basic in <strong>Config → Security</strong>, or make sure another auth layer (reverse proxy, firewall) is in front.
+    </span>
+    <button @click="dismissNoAuthBanner()" title="Hide on this device"
+            style="background:rgba(255,255,255,0.12);color:#ffdada;border:1px solid rgba(255,218,218,0.3);padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer">
+      Dismiss
+    </button>
+  </div>
 
   <!-- Header -->
   <div class="header" style="display:flex;align-items:center;gap:12px">
@@ -474,7 +556,7 @@
 
   <!-- Always-visible live status -->
   <div class="card">
-    <div class="card-title" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <div class="card-title" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       Current Status
       <span class="status-badge" :class="statusBadgeClass" x-text="statusBadgeText"></span>
       <span x-show="activeRule.source==='rule' && (activeRule.down > 0 || activeRule.up > 0)" style="font-size:12px;color:#d29922"
@@ -482,6 +564,58 @@
       <span x-show="activeRule.source==='rule' && activeRule.down == 0 && activeRule.up == 0" style="font-size:12px;color:#3fb950">Unlimited</span>
       <span x-show="activeRule.source==='default' && isLimited" style="font-size:12px;color:#d29922"
         x-text="'↓' + (config.defaultDown || 0) + ' ↑' + (config.defaultUp || 0) + ' MB/s'"></span>
+    </div>
+
+    <!-- IP / Port info row — shown directly under the card-title when the
+         user has enabled at least one of vpnIpDisplay or forwardedPortsDisplay
+         (and there is data to show). Replaces the old card-title badge +
+         the separate row below the speed grid; gives IP and port equal
+         visual weight as a paired "outgoing VPN info" unit.
+         Recently-changed values render in amber (.vpngw-changed) for the
+         48 h after the change, with the previous value in the tooltip. -->
+    <div x-show="vpngwInfoRowVisible()" class="vpngw-info-row">
+
+      <!-- VPN server IP (exit) — shown in 'server' and 'both' modes -->
+      <span x-show="(config.vpnIpDisplay === 'server' || config.vpnIpDisplay === 'both') && exitIp"
+        class="vpngw-info-cell">
+        <span class="vpngw-info-label" x-text="config.vpnIpDisplay === 'both' ? 'Server:' : 'VPN IP:'"></span>
+        <code class="vpngw-info-value"
+          :class="{'vpngw-changed': isRecentlyChanged(exitIpChangedAt)}"
+          :title="ipTooltip('exit', exitIp, exitIpPrevious, exitIpChangedAt)"
+          x-text="exitIp"></code>
+      </span>
+
+      <!-- Tunnel IP — shown in 'tunnel' and 'both' modes -->
+      <span x-show="(config.vpnIpDisplay === 'tunnel' || config.vpnIpDisplay === 'both') && tunnelIp"
+        class="vpngw-info-cell">
+        <span class="vpngw-info-label" x-text="config.vpnIpDisplay === 'both' ? 'Tunnel:' : 'Tunnel IP:'"></span>
+        <code class="vpngw-info-value"
+          :class="{'vpngw-changed': isRecentlyChanged(tunnelIpChangedAt)}"
+          :title="ipTooltip('tunnel', tunnelIp, tunnelIpPrevious, tunnelIpChangedAt)"
+          x-text="tunnelIp"></code>
+      </span>
+
+      <!-- Forwarded ports — dynamic always shown when present, static only
+           in 'all' mode. Label pluralises when there's more than one port. -->
+      <span x-show="config.forwardedPortsDisplay !== 'off' &&
+                    (forwardedPortsDynamic || (config.forwardedPortsDisplay === 'all' && forwardedPortsStatic.length))"
+        class="vpngw-info-cell">
+        <span class="vpngw-info-label" x-text="visiblePortCount() === 1 ? 'Port:' : 'Ports:'"></span>
+
+        <!-- Dynamic port (PIA / Proton) -->
+        <code x-show="forwardedPortsDynamic" class="vpngw-info-value"
+          :class="{'vpngw-changed': isRecentlyChanged(forwardedPortDynamicChangedAt)}"
+          :title="portTooltip('dynamic')"
+          x-text="forwardedPortsDynamic"></code>
+
+        <!-- Static ports — only in 'all' mode -->
+        <template x-for="(p, i) in (config.forwardedPortsDisplay === 'all' ? forwardedPortsStatic : [])"
+                  :key="p.vpnPort + '-' + p.proto">
+          <code class="vpngw-info-value"
+            :title="portTooltip('static')"
+            x-text="p.vpnPort"></code>
+        </template>
+      </span>
     </div>
     <div class="speed-grid">
       <div class="speed-box">
@@ -547,6 +681,7 @@
         <div class="settings-nav-item" :class="configSection==='schedule' && 'settings-nav-active'" @click="configSection='schedule'">Schedule</div>
         <div class="settings-nav-item" :class="configSection==='services' && 'settings-nav-active'" @click="configSection='services'">Service Monitoring</div>
         <div class="settings-nav-item" :class="configSection==='tools' && 'settings-nav-active'" @click="configSection='tools'">Tools</div>
+        <div class="settings-nav-item" :class="configSection==='security' && 'settings-nav-active'" @click="configSection='security'; fetchApiKey()">Security</div>
       </div>
 
       <!-- Content -->
@@ -744,9 +879,54 @@
                 <button class="btn-danger" @click="config.ports.splice(idx,1)" title="Remove">&times;</button>
               </div>
               <!-- Auth row (conditional on type) -->
+              <div x-show="!pm.type || pm.type === 'qbittorrent'" style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+                <div style="display:flex;gap:8px;align-items:center">
+                  <!-- autocomplete + data-* vendor hints suppress Chrome
+                       saved-password prompts and 1Password / Bitwarden /
+                       LastPass overlay icons. Chrome treats a text+password
+                       pair as a login form by default; "new-password" on
+                       the password field + a random name tells it this
+                       is not a site-login context. -->
+                  <input type="text" x-model="pm.username" placeholder="qBit username (leave empty if no auth)"
+                    autocomplete="off" name="vpngw-qbit-user" spellcheck="false"
+                    data-1p-ignore data-lpignore="true" data-bwignore
+                    style="flex:1;background:#161b22;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+                  <input type="password" x-model="pm.password" placeholder="qBit password"
+                    autocomplete="new-password" name="vpngw-qbit-pass"
+                    data-1p-ignore data-lpignore="true" data-bwignore
+                    style="flex:1;background:#161b22;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
+                  <button class="btn btn-sm" @click="testPort(pm)">Test</button>
+                </div>
+                <div style="font-size:11px;color:#8b949e;line-height:1.4">
+                  Leave empty if qBit has authentication disabled, or "Bypass authentication for clients on localhost" enabled
+                  in qBit's <em>WebUI</em> settings. Required otherwise — vpn-gateway needs API access to read transfer stats.
+                </div>
+
+                <!-- Auto-sync forwarded port (PIA / Proton only) — replaces
+                     external sidecars like claabs/qbittorrent-port-forward-file.
+                     Validator rejects more than one enabled at a time
+                     (PIA gives one external port per tunnel). -->
+                <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+                  <label class="toggle toggle-sm">
+                    <input type="checkbox" x-model="pm.autoSyncForwardedPort" @change="save()">
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span style="font-size:12px;color:#c9d1d9">Auto-sync listening port from PIA/Proton forwarded port</span>
+                </div>
+                <div x-show="pm.autoSyncForwardedPort" class="setting-help" style="padding-left:46px">
+                  vpn-gateway checks <code>/config/wireguard/forwarded_port</code> every 30&nbsp;seconds and updates this
+                  qBit instance's listening port whenever it changes. Requires Username and Password
+                  above — qBit's API needs authentication to update settings. Only one qBit instance
+                  can have this enabled at a time since PIA and Proton hand out one external port per
+                  tunnel. Does nothing for TorGuard or other providers that use static ports
+                  reserved in the Docker template.
+                </div>
+              </div>
+
               <div x-show="pm.type === 'sabnzbd'" style="display:flex;gap:8px;align-items:center;margin-top:8px">
                 <input type="password" x-model="pm.apiKey" placeholder="SABnzbd API key"
-                  autocomplete="one-time-code"
+                  autocomplete="new-password" name="vpngw-sab-key"
+                  data-1p-ignore data-lpignore="true" data-bwignore
                   style="flex:1;background:#161b22;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
                 <button class="btn btn-sm" @click="testPort(pm)">Test</button>
               </div>
@@ -760,10 +940,12 @@
                 </div>
                 <div x-show="pm.showDetails" style="display:flex;gap:8px;align-items:center;margin-top:2px">
                   <input type="text" x-model="pm.username" placeholder="Admin username"
-                    autocomplete="off"
+                    autocomplete="off" name="vpngw-dispatch-user" spellcheck="false"
+                    data-1p-ignore data-lpignore="true" data-bwignore
                     style="flex:1;background:#161b22;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
                   <input type="password" x-model="pm.password" placeholder="Password"
-                    autocomplete="one-time-code"
+                    autocomplete="new-password" name="vpngw-dispatch-pass"
+                    data-1p-ignore data-lpignore="true" data-bwignore
                     style="flex:1;background:#161b22;border:1px solid #30363d;border-radius:4px;color:#e1e4e8;padding:6px 8px;font-size:13px">
                   <button class="btn btn-sm" @click="testPort(pm)">Test</button>
                 </div>
@@ -784,17 +966,227 @@
         <!-- ===== TOOLS ===== -->
         <div x-show="configSection==='tools'">
           <div class="settings-section-title">Tools</div>
-          <div class="settings-section-desc">Maintenance and diagnostic tools.</div>
+          <div class="settings-section-desc">Dashboard preferences and diagnostic tools.</div>
 
-          <div>
-            <div style="font-size:13px;font-weight:600;color:#c9d1d9;margin-bottom:4px">Reset Statistics</div>
-            <div style="font-size:12px;color:#8b949e;margin-bottom:8px">
-              Clears all traffic history, daily volumes, and per-service totals.
-              Use this after adding port monitoring to an already-running container,
-              so per-service totals start from the same point as VPN totals.
+          <!-- UI Scale — mirrors Clonarr's Display section. Uses the CSS
+               `zoom` property which browsers apply as a visual scale on
+               everything inside <html>. Stored per-browser in localStorage
+               so different devices can pick independently. -->
+          <div class="setting-row">
+            <div class="setting-label">UI size</div>
+            <div class="setting-value" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <template x-for="opt in [{label:'Compact',value:'1'},{label:'Default',value:'1.1'},{label:'Large',value:'1.2'}]" :key="opt.value">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+                  <input type="radio" name="vpngwUiScale" :value="opt.value" :checked="uiScale === opt.value" @change="setUIScale(opt.value)" style="accent-color:#58a6ff">
+                  <span x-text="opt.label" :style="uiScale === opt.value ? 'color:#e1e4e8' : 'color:#aaa'"></span>
+                </label>
+              </template>
+              <span style="font-size:13px;color:#8b949e" x-text="uiScale === '1' ? '(100%)' : Math.round(parseFloat(uiScale) * 100) + '%'"></span>
+              <div class="setting-help" style="margin-top:0">
+                Scales the whole dashboard larger or smaller. Saved per browser / device
+                in <code>localStorage</code>, not part of the config file.
+              </div>
             </div>
-            <button class="btn btn-sm" style="color:#f85149;border-color:#f85149"
-              @click="confirmModal = { show: true, title: 'Reset All Stats', message: 'Reset all traffic statistics?\n\nThis clears history, daily volumes, and per-service totals. This cannot be undone.', confirmLabel: 'Reset', onConfirm: () => resetStats() }">Reset All Stats</button>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">VPN IP badge</div>
+            <div class="setting-value">
+              <select class="input" style="max-width:320px"
+                x-model="config.vpnIpDisplay" @change="save()">
+                <option value="server">VPN server IP (exit) — what the world sees</option>
+                <option value="tunnel">Tunnel IP — our address inside the tunnel</option>
+                <option value="both">Both (Server + Tunnel)</option>
+                <option value="off">Off — hide the badge</option>
+              </select>
+              <div class="setting-help">
+                <strong>Server IP</strong> comes from the <code>Endpoint</code> line in
+                <code>wg0.conf</code> — this is the VPN provider's public IP that
+                external services see when tunneled traffic reaches the internet
+                (e.g. <code>37.120.153.2</code> for TorGuard).
+                <strong>Tunnel IP</strong> is the address the provider assigned on our
+                side of the WireGuard tunnel (e.g. <code>10.13.128.149</code>) — useful
+                for debugging routing, not for verifying your exit IP. Shows in the
+                "Current Status" card.
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">Forwarded ports</div>
+            <div class="setting-value">
+              <select class="input" style="max-width:320px"
+                x-model="config.forwardedPortsDisplay" @change="save()">
+                <option value="off">Off — hide the badges</option>
+                <option value="auto">Auto (dynamic only) — PIA / Proton rotating port</option>
+                <option value="all">All ports — static + auto with source badges</option>
+              </select>
+              <div class="setting-help">
+                <strong>Auto</strong> shows the single dynamic port PIA / Proton
+                assigns via their port-forwarding API (from
+                <code>/config/wireguard/forwarded_port</code>), plus a rotation
+                countdown when <code>VPN_PIA_PORT_FORWARD_PERSIST=true</code> is set.
+                <strong>All</strong> also shows static port-redirects from
+                <code>VPN_PORT_REDIRECTS</code> (TorGuard / Mullvad-PF / AirVPN /
+                generic WireGuard). <strong>Off</strong> is the default — most
+                TorGuard users reserve ports in their Docker template and don't
+                need to see them in the dashboard; PIA users who care about
+                rotation switch to Auto.
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">Reset statistics</div>
+            <div class="setting-value">
+              <button class="btn btn-sm" style="color:#f85149;border-color:#f85149"
+                @click="confirmModal = { show: true, title: 'Reset All Stats', message: 'Reset all traffic statistics?\n\nThis clears history, daily volumes, and per-service totals. This cannot be undone.', confirmLabel: 'Reset', onConfirm: () => resetStats() }">Reset All Stats</button>
+              <div class="setting-help">
+                Clears all traffic history, daily volumes, and per-service totals.
+                Use this after adding port monitoring to an already-running
+                container, so per-service totals start from the same point as
+                VPN totals.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== SECURITY ===== -->
+        <div x-show="configSection==='security'">
+          <div class="settings-section-title">Security</div>
+          <div class="settings-section-desc">Authentication, API key, and password. Same pattern as Radarr/Sonarr.</div>
+
+          <div class="setting-row">
+            <div class="setting-label">Authentication</div>
+            <div class="setting-value">
+              <select class="input" style="max-width:220px" x-model="config.authentication">
+                <option value="forms">Forms (login page)</option>
+                <option value="basic">Basic (browser popup)</option>
+                <option value="none">None (disabled — unsafe)</option>
+              </select>
+              <div class="setting-help">How users log in. <strong>Forms</strong> for most users. <strong>Basic</strong> behind a reverse proxy that handles login. <strong>None</strong> disables auth entirely — only safe behind another auth layer or on a machine not reachable from other devices.</div>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">Authentication Required</div>
+            <div class="setting-value">
+              <select class="input" style="max-width:280px" x-model="config.authenticationRequired">
+                <option value="disabled_for_local_addresses">Disabled for Trusted Networks</option>
+                <option value="enabled">Enabled (all traffic)</option>
+              </select>
+              <div class="setting-help"><strong>Enabled</strong> requires a password from every request including your LAN. <strong>Disabled for Trusted Networks</strong> lets devices on the networks listed below skip the login page.</div>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">Trusted Networks</div>
+            <div class="setting-value">
+              <input type="text" class="input" placeholder="e.g. 192.168.86.0/24, 10.66.0.0/24" x-model="config.trustedNetworks" :disabled="authStatus.trustedNetworksLocked">
+              <div class="setting-help" x-show="authStatus.trustedNetworksLocked" x-cloak style="color:#d29922">
+                <strong>Locked by <code>TRUSTED_NETWORKS</code> environment variable.</strong> To change the value, edit the Unraid template (or <code>docker-compose.yml</code>) and restart the container. Unsetting the env var unlocks this field.
+              </div>
+              <div class="setting-help" x-show="!authStatus.trustedNetworksLocked">
+                IPs or CIDR subnets that skip login when <em>Authentication Required</em> is "Disabled for Trusted Networks". Every address in this list gets full admin access without a password.
+                <br><br>
+                <strong>Leave empty</strong> falls back to all private networks (<code>10.x</code>, <code>172.16-31.x</code> incl. Docker bridges, <code>192.168.x</code>, link-local, IPv6 ULA). Convenient but treats any container on your Docker host and any device on your home WiFi as admin.
+                <br><br>
+                <strong>Set explicitly</strong> to narrow: <code>192.168.86.0/24</code> (home VLAN), <code>10.66.0.0/24</code> (WireGuard), <code>192.168.86.22/32</code> (one device). Loopback is always trusted so healthchecks work.
+                <br><br>
+                <strong>Lock via env var</strong> <code>TRUSTED_NETWORKS</code> (comma-separated CIDRs) in the Unraid template to prevent this field from being changed through the UI.
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">Trusted Proxies</div>
+            <div class="setting-value">
+              <input type="text" class="input" placeholder="e.g. 172.17.0.1" x-model="config.trustedProxies" :disabled="authStatus.trustedProxiesLocked">
+              <div class="setting-help" x-show="authStatus.trustedProxiesLocked" x-cloak style="color:#d29922">
+                <strong>Locked by <code>TRUSTED_PROXIES</code> environment variable.</strong> To change the value, edit the Unraid template (or <code>docker-compose.yml</code>) and restart the container.
+              </div>
+              <div class="setting-help" x-show="!authStatus.trustedProxiesLocked">Only needed if the gateway runs behind a reverse proxy (SWAG, Authelia, etc). List the proxy's IP so <code>X-Forwarded-For</code> is trusted. Leave empty for direct access. Lock via env var <code>TRUSTED_PROXIES</code> in the Unraid template.</div>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">Session TTL (days)</div>
+            <div class="setting-value">
+              <input type="number" class="input" style="max-width:100px" min="1" max="365" x-model.number="config.sessionTtlDays">
+              <div class="setting-help">How long a login stays valid before re-authentication. Default 30. Max 365.</div>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label"></div>
+            <div class="setting-value">
+              <button class="btn btn-primary" @click="saveSecurityConfig()" :disabled="pwChangeSaving">
+                <span x-show="!pwChangeSaving">Save security settings</span>
+                <span x-show="pwChangeSaving">Saving...</span>
+              </button>
+              <span x-show="securitySaveMsg" x-text="securitySaveMsg" :style="securitySaveOk ? 'color:#3fb950;margin-left:10px;font-size:13px' : 'color:#f85149;margin-left:10px;font-size:13px'"></span>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid #30363d;margin:20px 0"></div>
+
+          <!-- API Key -->
+          <div class="setting-row">
+            <div class="setting-label">API Key</div>
+            <div class="setting-value">
+              <div style="display:flex;gap:6px;align-items:center">
+                <input type="text" class="input" style="flex:1;font-family:monospace;font-size:12px" readonly
+                       :value="securityApiKeyVisible ? securityApiKey : (securityApiKey ? '••••••••••••••••••••••••••••••••' : 'Loading...')">
+                <button class="btn btn-sm" @click="securityApiKeyVisible = !securityApiKeyVisible" x-text="securityApiKeyVisible ? 'Hide' : 'Show'"></button>
+                <button class="btn btn-sm" @click="copyApiKey()" x-text="securityApiKeyCopied ? 'Copied!' : 'Copy'"></button>
+              </div>
+              <div class="setting-help">For scripts and Homepage widgets. Send as <code>X-Api-Key: &lt;key&gt;</code> header. Query parameter (<code>?apikey=</code>) also works but leaks to logs and browser history — prefer the header.</div>
+              <div style="margin-top:8px" x-show="!securityRegenConfirm">
+                <button class="btn btn-sm" style="color:#f85149;border-color:#f85149" @click="securityRegenConfirm = true">Regenerate API Key</button>
+              </div>
+              <div style="margin-top:8px;display:flex;gap:8px" x-show="securityRegenConfirm">
+                <button class="btn btn-sm" style="color:#f85149;border-color:#f85149" @click="regenerateApiKey()" :disabled="securityRegenerating">
+                  <span x-show="!securityRegenerating">Confirm regenerate (old key stops working immediately)</span>
+                  <span x-show="securityRegenerating">Regenerating...</span>
+                </button>
+                <button class="btn btn-sm" @click="securityRegenConfirm = false">Cancel</button>
+              </div>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid #30363d;margin:20px 0"></div>
+
+          <!-- Password change -->
+          <div class="settings-section-title" style="font-size:14px;margin-bottom:12px">Change password</div>
+          <div class="setting-row">
+            <div class="setting-label">Current password</div>
+            <div class="setting-value">
+              <input type="password" class="input" style="max-width:280px" autocomplete="current-password" x-model="pwChange.current">
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label">New password</div>
+            <div class="setting-value">
+              <input type="password" class="input" style="max-width:280px" autocomplete="new-password" x-model="pwChange.next">
+              <div class="setting-help">At least 10 characters, with at least 2 of: uppercase, lowercase, digit, symbol.</div>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label">Confirm new password</div>
+            <div class="setting-value">
+              <input type="password" class="input" style="max-width:280px" autocomplete="new-password" x-model="pwChange.confirm">
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-label"></div>
+            <div class="setting-value">
+              <button class="btn btn-primary" @click="changePassword()" :disabled="pwChangeSaving || !pwChange.current || !pwChange.next || !pwChange.confirm">
+                <span x-show="!pwChangeSaving">Change password</span>
+                <span x-show="pwChangeSaving">Saving...</span>
+              </button>
+              <span x-show="pwChangeMsg" x-text="pwChangeMsg" :style="pwChangeOk ? 'color:#3fb950;margin-left:10px;font-size:13px' : 'color:#f85149;margin-left:10px;font-size:13px'"></span>
+              <div class="setting-help">Changing your password signs out other sessions. You will remain logged in on this browser.</div>
+            </div>
           </div>
         </div>
 
@@ -1115,7 +1507,96 @@
 
   <!-- Footer -->
   <div class="footer" x-text="gwName + (appVersion ? ' v' + appVersion : '')"></div>
+
+  <!-- Disable-auth confirmation modal — requires current password to
+       transition authentication from forms/basic to none. -->
+  <div x-show="disableAuthModalOpen" x-cloak
+       style="position:fixed;top:0;right:0;bottom:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px;box-sizing:border-box"
+       @keydown.escape.window="disableAuthModalOpen = false; disableAuthError = ''">
+    <div @click.outside="disableAuthModalOpen = false; disableAuthError = ''"
+         style="background:#1a1d24;border:2px solid #8b2d2d;border-radius:10px;padding:24px 28px;width:min(520px,100%);max-height:90vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,0.6)">
+      <h2 style="margin:0 0 10px;font-size:20px;color:#ff7a7a">⚠️ Disable authentication?</h2>
+      <p style="font-size:13px;line-height:1.5;color:#d4d4d4;margin:10px 0 8px">
+        You are about to turn off login for <strong x-text="gwName"></strong>. After this change, anyone who reaches this UI will be admin — they can change bandwidth limits, read qBittorrent / Dispatcharr / SABnzbd credentials, and modify traffic policy for every service behind the VPN.
+      </p>
+      <p style="font-size:13px;line-height:1.5;color:#d4d4d4;margin:8px 0">
+        Pick this only if you have <em>another</em> authentication layer in front (Authelia, Cloudflare Access) or you are running on a machine that is not reachable from other devices.
+      </p>
+      <div style="background:#281818;border:1px solid #5a2d2d;border-radius:6px;padding:10px 12px;margin:12px 0;font-size:12px;color:#ffcaca">
+        A persistent red warning banner will be shown at the top of every page while authentication is disabled, and the server logs a warning every 60 seconds.
+      </div>
+      <label style="display:block;font-size:12px;color:#c3c7cc;margin:12px 0 6px">
+        Enter your <strong>current admin password</strong> to confirm:
+      </label>
+      <input type="password" class="input" x-model="disableAuthPassword" autocomplete="current-password" placeholder="current password"
+             @keydown.enter="disableAuthPassword && (disableAuthModalOpen = false, saveSecurityConfig(true))"
+             style="width:100%;margin-bottom:8px">
+      <div x-show="disableAuthError" x-text="disableAuthError" style="color:#ff9a9a;font-size:12px;margin:0 0 10px"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-sm"
+                @click="disableAuthModalOpen = false; disableAuthError = ''; disableAuthPassword = ''; config.authentication = authStatus.authentication || 'forms'">Cancel</button>
+        <button class="btn btn-sm" style="color:#f85149;border-color:#f85149"
+                :disabled="!disableAuthPassword"
+                @click="disableAuthModalOpen = false; saveSecurityConfig(true)">
+          Yes, disable authentication
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
+
+<script>
+// Global fetch wrapper. Handles two cross-cutting concerns so call sites
+// don't have to:
+//
+// (1) CSRF — attach X-CSRF-Token header to every mutating fetch. Server
+//     sets a vpngw_csrf cookie on GETs; the wrapper reads the cookie and
+//     echoes it as a header on POST/PUT/DELETE/PATCH. HTML form POSTs
+//     to /login and /setup use a hidden csrf_token field, not this path.
+//
+// (2) 401 → /login redirect — if any auth-gated endpoint returns 401
+//     (session expired, logged out elsewhere, cookie cleared), bounce
+//     the user to the login page. Centralized here so every fetch call
+//     site doesn't need `if (resp.status === 401) window.location...`
+//     boilerplate. A never-resolving promise is returned on redirect so
+//     callers don't try to .json() a body that won't arrive before the
+//     navigation completes.
+//
+//     Skip the redirect when:
+//       - Already on /login or /setup (avoid loop — these pages probe
+//         /api/auth/status as a normal public endpoint).
+//       - Caller opts out via X-Skip-Login-Redirect header. The only
+//         legitimate use is the disable-auth modal, where 401 means
+//         "confirm_password incorrect" not "session expired".
+(function() {
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init) {
+    init = init || {};
+    const method = (init.method || 'GET').toUpperCase();
+    const headers = Object.assign({}, init.headers || {});
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+      const m = document.cookie.match(/(?:^|; )vpngw_csrf=([^;]+)/);
+      if (m) headers['X-CSRF-Token'] = m[1];
+    }
+    const skipLoginRedirect = headers['X-Skip-Login-Redirect'] === '1';
+    // X-Skip-Login-Redirect is a client-side hint only — strip it before
+    // sending so we don't pollute server request headers.
+    delete headers['X-Skip-Login-Redirect'];
+    init.headers = headers;
+    const resp = await origFetch(input, init);
+    if (resp.status === 401 && !skipLoginRedirect) {
+      const path = window.location.pathname;
+      if (path !== '/login' && path !== '/setup') {
+        window.location.href = '/login';
+        // Never-resolving promise: prevents callers from trying to
+        // parse a body after the page has already started navigating.
+        return new Promise(() => {});
+      }
+    }
+    return resp;
+  };
+})();
+</script>
 
 <script>
 function app() {
@@ -1130,19 +1611,85 @@ function app() {
       logChanges: true,
       configVersion: 1,
       rules: [],
-      ports: []
+      ports: [],
+      // Auth config — populated from /api/config. Security panel binds
+      // directly to these via x-model; saveSecurityConfig PUTs a partial
+      // payload so other panels' saves aren't affected.
+      authentication: 'forms',
+      authenticationRequired: 'disabled_for_local_addresses',
+      trustedNetworks: '',
+      trustedProxies: '',
+      sessionTtlDays: 30,
+      // Dashboard display preferences — bound by the Settings → Tools
+      // dropdowns, persisted to /config/.traffic-ui.json via normal save.
+      vpnIpDisplay: 'server',
+      forwardedPortsDisplay: 'off',
     },
     activeUp: { active: false, rateMB: 0 },
     activeDown: { active: false, rateMB: 0 },
     activeRule: { source: 'default', index: 0 },
     gwName: 'VPN Gateway',
     appVersion: '',
+    // VPN endpoint data from /api/status. exitIp is the public IP of
+    // the VPN server (from the Endpoint line in wg0.conf) — the IP
+    // external services see when our traffic exits the tunnel. This is
+    // the "VPN IP" users care about verifying. tunnelIp is the IP the
+    // provider assigned on OUR side of the tunnel (wg0 interface) —
+    // useful for debugging but secondary, shown in tooltip.
+    exitIp: '',
+    exitPort: '',
+    exitIpPrevious: '',
+    exitIpChangedAt: '',
+    tunnelIp: '',
+    tunnelIface: '',
+    tunnelIpPrevious: '',
+    tunnelIpChangedAt: '',
+    // Forwarded ports from /api/status. static is an array of
+    // {vpnPort, containerPort, proto} parsed from VPN_PORT_REDIRECTS.
+    // dynamic is an integer (0 when no PIA/Proton auto-PF active).
+    // rotatesAt is an RFC3339 timestamp (empty when no PIA persist).
+    // dynamicPrevious + dynamicChangedAt let us flag a fresh PIA
+    // rotation in amber for 48h with the prior port in the tooltip.
+    forwardedPortsStatic: [],
+    forwardedPortsDynamic: 0,
+    forwardedPortsRotatesAt: '',
+    forwardedPortDynamicPrevious: '',
+    forwardedPortDynamicChangedAt: '',
     saving: false,
     configSection: 'bandwidth',
     showSummary: true,
     toast: { show: false, msg: '', type: '' },
     confirmModal: { show: false, title: '', message: '', confirmLabel: '', onConfirm: null, onCancel: null },
     pollTimer: null,
+    // UI zoom scale — "1" (100%) / "1.1" (110%) / "1.2" (120%). Persisted
+    // per browser in localStorage, applied via document.documentElement.
+    // style.zoom in init(). Not part of the server-side config; different
+    // devices viewing the same vpn-gateway can pick independent sizes.
+    uiScale: localStorage.getItem('vpngw-ui-scale') || '1',
+
+    // --- Security panel state (configSection === 'security') ---
+    // Mirrors Clonarr's Settings → Security layout. The backend auth package
+    // is the same mirrored copy, so endpoint paths and cookie names are
+    // identical except for the vpngw_* prefix on cookies.
+    securityApiKey: '',
+    securityApiKeyVisible: false,
+    securityApiKeyCopied: false,
+    securityRegenerating: false,
+    securityRegenConfirm: false,
+    pwChange: { current: '', next: '', confirm: '' },
+    pwChangeSaving: false,
+    pwChangeMsg: '',
+    pwChangeOk: false,
+    // Disable-auth confirmation modal — requires current password to
+    // transition from forms/basic to none.
+    disableAuthModalOpen: false,
+    disableAuthPassword: '',
+    disableAuthError: '',
+    authStatus: { configured: false, authenticated: false, username: '', localBypass: false, authentication: '', authenticationRequired: '', trustedNetworksLocked: false, trustedProxiesLocked: false, trustedNetworksEffective: '', trustedProxiesEffective: '' },
+    authStatusLoadError: false, // true after retries fail → Security save button warns
+    noAuthBannerDismissed: false,
+    securitySaveMsg: '',
+    securitySaveOk: false,
 
     // Traffic stats
     defaultPortColors: ['#f0883e','#a371f7','#f778ba','#79c0ff','#d2a8ff','#ffd33d'],
@@ -1174,7 +1721,13 @@ function app() {
     statsSSE: null,
 
     async init() {
+      // Apply persisted UI scale BEFORE any rendering work so the first
+      // paint happens at the chosen zoom — avoids a brief flash at 100%
+      // for users on Large.
+      if (this.uiScale !== '1') document.documentElement.style.zoom = this.uiScale;
+
       await this.reload();
+      this.fetchAuthStatus(); // renders no-auth banner + env-lock state for Security panel
       // Load data for remembered tab
       if (this.tab === 'traffic') { this.fetchHistory(); this.fetchDaily(); this.startServiceDetailsPolling(); }
       if (this.tab === 'stats') { this.fetchStatsData(); }
@@ -1182,6 +1735,330 @@ function app() {
       this.pollTimer = setInterval(() => this.fetchStatus(), 5000);
       // Always connect SSE for live speed display
       this.connectSSE();
+    },
+
+    // setUIScale applies + persists the zoom level chosen in Settings → Tools.
+    // Uses CSS `zoom` (supported by all target browsers — Chrome, Firefox,
+    // Safari); transform:scale would shrink-to-fit layout which isn't what we
+    // want. localStorage is per browser / device so different access points
+    // to the same vpn-gateway can each pick their preferred size.
+    setUIScale(value) {
+      this.uiScale = value;
+      localStorage.setItem('vpngw-ui-scale', value);
+      document.documentElement.style.zoom = value;
+    },
+
+    // --- Security panel methods (mirror Clonarr's implementation; backend
+    // auth package is identical so paths + payloads match 1:1) ---
+    async fetchAuthStatus(retriesLeft = 2) {
+      try {
+        const resp = await fetch('/api/auth/status');
+        if (!resp.ok) {
+          if (retriesLeft > 0) setTimeout(() => this.fetchAuthStatus(retriesLeft - 1), 1000);
+          else this.authStatusLoadError = true;
+          return;
+        }
+        this.authStatusLoadError = false;
+        const data = await resp.json();
+        const localBypass = data.configured && !data.authenticated && data.authentication !== 'none';
+        const wasNone = this.authStatus.authentication === 'none';
+        this.authStatus = {
+          configured: data.configured,
+          authenticated: data.authenticated,
+          username: data.username || '',
+          localBypass: localBypass,
+          authentication: data.authentication || '',
+          authenticationRequired: data.authentication_required || '',
+          trustedNetworksLocked: !!data.trusted_networks_locked,
+          trustedProxiesLocked: !!data.trusted_proxies_locked,
+          trustedNetworksEffective: data.trusted_networks_effective || '',
+          trustedProxiesEffective: data.trusted_proxies_effective || '',
+        };
+        // Reflect env-locked effective values in the disabled inputs so user
+        // sees what's actually enforced.
+        if (this.authStatus.trustedNetworksLocked) this.config.trustedNetworks = this.authStatus.trustedNetworksEffective;
+        if (this.authStatus.trustedProxiesLocked) this.config.trustedProxies = this.authStatus.trustedProxiesEffective;
+        if (this.authStatus.authentication === 'none') {
+          this.noAuthBannerDismissed = localStorage.getItem('vpngw_noauth_banner_dismissed') === '1';
+        } else {
+          this.noAuthBannerDismissed = false;
+          if (wasNone) localStorage.removeItem('vpngw_noauth_banner_dismissed');
+        }
+      } catch (e) {
+        console.error('fetchAuthStatus:', e);
+        if (retriesLeft > 0) setTimeout(() => this.fetchAuthStatus(retriesLeft - 1), 1000);
+        else this.authStatusLoadError = true;
+      }
+    },
+
+    dismissNoAuthBanner() {
+      this.noAuthBannerDismissed = true;
+      localStorage.setItem('vpngw_noauth_banner_dismissed', '1');
+    },
+
+    async fetchApiKey() {
+      // 401 handled centrally by the fetch wrapper (redirects to /login).
+      try {
+        const resp = await fetch('/api/auth/api-key');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        this.securityApiKey = data.api_key || '';
+      } catch (e) { console.error('fetchApiKey:', e); }
+    },
+
+    async copyApiKey() {
+      if (!this.securityApiKey) return;
+      try {
+        await navigator.clipboard.writeText(this.securityApiKey);
+        this.securityApiKeyCopied = true;
+        setTimeout(() => { this.securityApiKeyCopied = false; }, 2000);
+      } catch (e) { console.error('copyApiKey:', e); }
+    },
+
+    async regenerateApiKey() {
+      this.securityRegenerating = true;
+      try {
+        const resp = await fetch('/api/auth/regenerate-api-key', { method: 'POST' });
+        if (!resp.ok) { this.showToast('Failed to regenerate API key', 'toast-error'); return; }
+        const data = await resp.json();
+        this.securityApiKey = data.api_key || '';
+        this.securityApiKeyVisible = true;
+        this.securityRegenConfirm = false;
+      } catch (e) { console.error('regenerateApiKey:', e); }
+      finally { this.securityRegenerating = false; }
+    },
+
+    // Mirror of server-side validatePassword (auth/auth.go:643): ≥10 chars
+    // and ≥2 of {upper, lower, digit, symbol}. Returns '' on valid, error
+    // message on failure. Enforced client-side for fast UX; server
+    // re-validates in all cases, this is not a trust boundary.
+    pwComplexityError(pw) {
+      if (!pw || pw.length < 10) return 'password must be at least 10 characters';
+      let classes = 0;
+      if (/[A-Z]/.test(pw)) classes++;
+      if (/[a-z]/.test(pw)) classes++;
+      if (/[0-9]/.test(pw)) classes++;
+      if (/[^A-Za-z0-9]/.test(pw)) classes++;
+      if (classes < 2) return 'password must contain at least 2 of: uppercase, lowercase, digit, symbol';
+      return '';
+    },
+
+    // forwardedPortsCountdown returns a human-readable "rotates in N days"
+    // / "expired" / "" based on the RFC3339 timestamp the backend returns.
+    // Used inside the dynamic-port tooltip so users see when their PIA
+    // port will rotate next without having to learn a new badge.
+    forwardedPortsCountdown() {
+      if (!this.forwardedPortsRotatesAt) return '';
+      const expiry = new Date(this.forwardedPortsRotatesAt);
+      if (isNaN(expiry.getTime())) return '';
+      const msLeft = expiry.getTime() - Date.now();
+      if (msLeft <= 0) return 'expired — reconnect to renew';
+      const days = Math.floor(msLeft / (1000 * 60 * 60 * 24));
+      if (days === 0) {
+        const hours = Math.floor(msLeft / (1000 * 60 * 60));
+        return 'rotates in ' + hours + 'h';
+      }
+      return 'rotates in ' + days + (days === 1 ? ' day' : ' days');
+    },
+
+    // isRecentlyChanged returns true when the RFC3339 timestamp lies within
+    // the last 48 hours. The 48h window is intentionally fixed (not config-
+    // urable) — long enough that you'll notice a PIA rotation that
+    // happened while you were sleeping, short enough that the dashboard
+    // doesn't permanently look "alarmed".
+    isRecentlyChanged(changedAt) {
+      if (!changedAt) return false;
+      const ts = new Date(changedAt);
+      if (isNaN(ts.getTime())) return false;
+      const ageMs = Date.now() - ts.getTime();
+      return ageMs >= 0 && ageMs < 48 * 60 * 60 * 1000;
+    },
+
+    // timeAgo turns an RFC3339 timestamp into "5 min ago" / "3h ago" /
+    // "2d ago". Used inside change-tracking tooltips. Returns '' on bad
+    // input so the caller can collapse the "Changed X ago" wording.
+    timeAgo(changedAt) {
+      if (!changedAt) return '';
+      const ts = new Date(changedAt);
+      if (isNaN(ts.getTime())) return '';
+      const ageMs = Date.now() - ts.getTime();
+      if (ageMs < 0) return 'just now';
+      const sec = Math.floor(ageMs / 1000);
+      if (sec < 60) return 'just now';
+      const min = Math.floor(sec / 60);
+      if (min < 60) return min + ' min ago';
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return hr + 'h ago';
+      const days = Math.floor(hr / 24);
+      return days + 'd ago';
+    },
+
+    // vpngwInfoRowVisible returns true when the IP / port row should
+    // render: at least one display preference is on AND that preference
+    // has data to show. Avoids an empty card-pad when both toggles are
+    // on but values are missing (interface down, no ports configured).
+    vpngwInfoRowVisible() {
+      const ipOn = this.config.vpnIpDisplay && this.config.vpnIpDisplay !== 'off';
+      const ipHas = (this.config.vpnIpDisplay === 'server'  && this.exitIp) ||
+                    (this.config.vpnIpDisplay === 'tunnel'  && this.tunnelIp) ||
+                    (this.config.vpnIpDisplay === 'both'    && (this.exitIp || this.tunnelIp));
+      const portOn = this.config.forwardedPortsDisplay && this.config.forwardedPortsDisplay !== 'off';
+      const portHas = this.forwardedPortsDynamic ||
+                      (this.config.forwardedPortsDisplay === 'all' && this.forwardedPortsStatic.length);
+      return (ipOn && ipHas) || (portOn && portHas);
+    },
+
+    // visiblePortCount counts what the row will render so the label can
+    // pluralise correctly (Port: vs Ports:).
+    visiblePortCount() {
+      let n = this.forwardedPortsDynamic ? 1 : 0;
+      if (this.config.forwardedPortsDisplay === 'all') n += this.forwardedPortsStatic.length;
+      return n;
+    },
+
+    // ipTooltip returns the hover text for an IP cell. Falls back to a
+    // descriptive label when there is no recorded change, so the user
+    // still gets context on what they're looking at.
+    ipTooltip(kind, current, previous, changedAt) {
+      if (!current) return '';
+      if (previous && changedAt) {
+        return 'Changed ' + this.timeAgo(changedAt) + ' from ' + previous;
+      }
+      if (kind === 'exit') {
+        return 'VPN server IP — Endpoint from wg0.conf (the public IP external services see)';
+      }
+      return 'Tunnel IP on ' + (this.tunnelIface || 'wg0') + ' — our address inside the tunnel';
+    },
+
+    // portTooltip returns the hover text for a port cell. Static ports
+    // are admin-managed so we don't track history for them. Dynamic ports
+    // (PIA / Proton) get the change history + rotation countdown if PIA
+    // persist is enabled.
+    portTooltip(kind) {
+      if (kind === 'static') {
+        return 'Static port — reserved at the VPN provider, set in the Docker template via VPN_PORT_REDIRECTS';
+      }
+      if (this.forwardedPortDynamicPrevious && this.forwardedPortDynamicChangedAt) {
+        const changed = 'Changed ' + this.timeAgo(this.forwardedPortDynamicChangedAt) + ' from ' + this.forwardedPortDynamicPrevious;
+        const next = this.forwardedPortsCountdown();
+        return next ? changed + ' · ' + next : changed;
+      }
+      const next = this.forwardedPortsCountdown();
+      return next
+        ? 'Dynamic port (PIA / Proton port-forward API) · ' + next
+        : 'Dynamic port (PIA / Proton port-forward API)';
+    },
+
+    async changePassword() {
+      if (!this.pwChange.current || !this.pwChange.next || !this.pwChange.confirm) return;
+      if (this.pwChange.next !== this.pwChange.confirm) {
+        this.pwChangeOk = false;
+        this.pwChangeMsg = 'New passwords do not match';
+        return;
+      }
+      const complexityErr = this.pwComplexityError(this.pwChange.next);
+      if (complexityErr) {
+        this.pwChangeOk = false;
+        this.pwChangeMsg = complexityErr;
+        return;
+      }
+      this.pwChangeSaving = true;
+      this.pwChangeMsg = '';
+      try {
+        const resp = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            current_password: this.pwChange.current,
+            new_password: this.pwChange.next,
+            new_password_confirm: this.pwChange.confirm,
+          }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          this.pwChangeOk = false;
+          this.pwChangeMsg = data.error || 'Failed to change password';
+          return;
+        }
+        this.pwChangeOk = true;
+        this.pwChangeMsg = data.reauth_required ? 'Password changed. Please log in again.' : 'Password changed.';
+        this.pwChange = { current: '', next: '', confirm: '' };
+        setTimeout(() => { this.pwChangeMsg = ''; }, 5000);
+      } catch (e) {
+        this.pwChangeOk = false;
+        this.pwChangeMsg = e.message || 'Network error';
+      } finally {
+        this.pwChangeSaving = false;
+      }
+    },
+
+    async saveSecurityConfig(confirmedNone) {
+      // Intercept auth=none transition — backend requires current password
+      // to confirm. UI opens a dedicated modal to collect it.
+      if (this.config.authentication === 'none' && !confirmedNone) {
+        try {
+          const resp = await fetch('/api/auth/status');
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.authentication !== 'none') {
+              this.disableAuthModalOpen = true;
+              this.disableAuthPassword = '';
+              this.disableAuthError = '';
+              return;
+            }
+          }
+        } catch (_) { /* fall through */ }
+      }
+
+      this.pwChangeSaving = true;
+      this.securitySaveMsg = '';
+      const body = {
+        authentication: this.config.authentication,
+        authenticationRequired: this.config.authenticationRequired,
+        sessionTtlDays: this.config.sessionTtlDays || 30,
+      };
+      // Skip env-locked fields from the save payload — server would 403
+      // on them anyway.
+      if (!this.authStatus.trustedProxiesLocked) body.trustedProxies = this.config.trustedProxies || '';
+      if (!this.authStatus.trustedNetworksLocked) body.trustedNetworks = this.config.trustedNetworks || '';
+      if (confirmedNone && this.disableAuthPassword) body.confirm_password = this.disableAuthPassword;
+
+      try {
+        // Opt out of the central 401→/login redirect for the
+        // confirmedNone path: here a 401 means "confirm_password
+        // incorrect", not "session expired", and must surface to the
+        // modal handler below. Session-expiry on the non-confirmedNone
+        // path is handled by the wrapper.
+        const headers = { 'Content-Type': 'application/json' };
+        if (confirmedNone) headers['X-Skip-Login-Redirect'] = '1';
+        const resp = await fetch('/api/config', {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          if (resp.status === 401 && confirmedNone) {
+            this.disableAuthError = data.error || 'Password incorrect';
+            this.disableAuthModalOpen = true;
+            this.disableAuthPassword = '';
+            return;
+          }
+          this.securitySaveOk = false;
+          this.securitySaveMsg = data.error || 'Failed to save';
+          return;
+        }
+        this.disableAuthPassword = '';
+        this.securitySaveOk = true;
+        this.securitySaveMsg = 'Saved';
+        setTimeout(() => { this.securitySaveMsg = ''; }, 3000);
+        this.fetchAuthStatus();
+      } catch (e) {
+        this.securitySaveOk = false;
+        this.securitySaveMsg = e.message || 'Network error';
+      } finally {
+        this.pwChangeSaving = false;
+      }
     },
 
     async reload() {
@@ -1205,11 +2082,37 @@ function app() {
           type: 'qbittorrent', // default for legacy configs without type field
           ...p,
         }));
+        // Auth fields (from the same /api/config endpoint). Backend masks
+        // credentials on the way out; these fields are plain strings with
+        // no masking concerns.
+        if (cfg.authentication !== undefined) this.config.authentication = cfg.authentication;
+        if (cfg.authenticationRequired !== undefined) this.config.authenticationRequired = cfg.authenticationRequired;
+        if (cfg.trustedNetworks !== undefined) this.config.trustedNetworks = cfg.trustedNetworks;
+        if (cfg.trustedProxies !== undefined) this.config.trustedProxies = cfg.trustedProxies;
+        if (cfg.sessionTtlDays !== undefined) this.config.sessionTtlDays = cfg.sessionTtlDays;
+        // Empty string from backend means "use default" — normalise so the
+        // dropdown has a valid selection and the badge logic doesn't have
+        // to handle the empty case separately.
+        this.config.vpnIpDisplay = cfg.vpnIpDisplay || 'server';
+        this.config.forwardedPortsDisplay = cfg.forwardedPortsDisplay || 'off';
         this.activeUp = status.activeUp || { active: false, rateMB: 0 };
         this.activeDown = status.activeDown || { active: false, rateMB: 0 };
         this.activeRule = status.activeRule || { source: 'default', index: 0 };
         if (status.hostname) this.gwName = status.hostname;
         if (status.version) this.appVersion = status.version;
+        this.exitIp = status.exitIp || '';
+        this.exitPort = status.exitPort || '';
+        this.exitIpPrevious = status.exitIpPrevious || '';
+        this.exitIpChangedAt = status.exitIpChangedAt || '';
+        this.tunnelIp = status.tunnelIp || '';
+        this.tunnelIface = status.tunnelIface || '';
+        this.tunnelIpPrevious = status.tunnelIpPrevious || '';
+        this.tunnelIpChangedAt = status.tunnelIpChangedAt || '';
+        this.forwardedPortsStatic = status.forwardedPortsStatic || [];
+        this.forwardedPortsDynamic = status.forwardedPortsDynamic || 0;
+        this.forwardedPortsRotatesAt = status.forwardedPortsRotatesAt || '';
+        this.forwardedPortDynamicPrevious = status.forwardedPortDynamicPrevious || '';
+        this.forwardedPortDynamicChangedAt = status.forwardedPortDynamicChangedAt || '';
       } catch (e) {
         this.showToast('Failed to load config: ' + e.message, 'toast-error');
       }
@@ -1223,6 +2126,19 @@ function app() {
           this.activeUp = data.activeUp || { active: false, rateMB: 0 };
           this.activeDown = data.activeDown || { active: false, rateMB: 0 };
           this.activeRule = data.activeRule || { source: 'default', index: 0 };
+          if (data.exitIp !== undefined) this.exitIp = data.exitIp;
+          if (data.exitPort !== undefined) this.exitPort = data.exitPort;
+          if (data.exitIpPrevious !== undefined) this.exitIpPrevious = data.exitIpPrevious || '';
+          if (data.exitIpChangedAt !== undefined) this.exitIpChangedAt = data.exitIpChangedAt || '';
+          if (data.tunnelIp !== undefined) this.tunnelIp = data.tunnelIp;
+          if (data.tunnelIface !== undefined) this.tunnelIface = data.tunnelIface;
+          if (data.tunnelIpPrevious !== undefined) this.tunnelIpPrevious = data.tunnelIpPrevious || '';
+          if (data.tunnelIpChangedAt !== undefined) this.tunnelIpChangedAt = data.tunnelIpChangedAt || '';
+          if (data.forwardedPortsStatic !== undefined) this.forwardedPortsStatic = data.forwardedPortsStatic || [];
+          if (data.forwardedPortsDynamic !== undefined) this.forwardedPortsDynamic = data.forwardedPortsDynamic || 0;
+          if (data.forwardedPortsRotatesAt !== undefined) this.forwardedPortsRotatesAt = data.forwardedPortsRotatesAt || '';
+          if (data.forwardedPortDynamicPrevious !== undefined) this.forwardedPortDynamicPrevious = data.forwardedPortDynamicPrevious || '';
+          if (data.forwardedPortDynamicChangedAt !== undefined) this.forwardedPortDynamicChangedAt = data.forwardedPortDynamicChangedAt || '';
         }
       } catch {}
     },
@@ -1230,11 +2146,22 @@ function app() {
     async save() {
       this.saving = true;
       try {
+        // Strip auth fields — they have a dedicated save path
+        // (saveSecurityConfig) with the disable-auth password gate.
+        // Leaking them in here would let a Bandwidth save commit an
+        // unsaved Security-panel edit without going through confirmation.
+        // Backend handlePutConfig merges partial bodies, so omitting
+        // these leaves existing auth state untouched.
+        const {
+          authentication, authenticationRequired,
+          trustedNetworks, trustedProxies, sessionTtlDays,
+          ...trafficConfig
+        } = this.config;
         const res = await fetch('/api/config', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ...this.config,
+            ...trafficConfig,
             rules: this.config.rules.map(({_custom, ...r}) => r)
           })
         });

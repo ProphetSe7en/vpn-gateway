@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"vpn-gateway-ui/netsec"
 )
 
 var (
@@ -53,7 +55,24 @@ type PortMapping struct {
 	// tab (e.g. active Dispatcharr streams with channel names). Only used
 	// by pollers that implement ServiceDetailer — ignored otherwise.
 	ShowDetails bool `json:"showDetails,omitempty"`
+
+	// AutoSyncForwardedPort makes vpn-gateway push the current PIA / Proton
+	// dynamic forwarded port (read from /config/wireguard/forwarded_port)
+	// into this qBittorrent instance's listening port via setPreferences.
+	// Replaces external sidecars like claabs/qbittorrent-port-forward-file.
+	//
+	// At most one PortMapping may have this true at a time — PIA / Proton
+	// hand out one external port per tunnel, and two qBits trying to bind
+	// the same incoming port would collide. Validated in ValidateConfig.
+	// qBittorrent type only; ignored on other types.
+	AutoSyncForwardedPort bool `json:"autoSyncForwardedPort,omitempty"`
 }
+
+// Current on-disk schema epoch for .traffic-ui.json. Bump when adding or
+// removing fields; read-side is forward-compatible (Go unmarshal ignores
+// unknown fields), so older containers can read newer files. v2 = auth
+// fields added (v1.4.0 security hardening).
+const CurrentConfigVersion = 2
 
 type Config struct {
 	Enabled         bool           `json:"enabled"`
@@ -65,11 +84,30 @@ type Config struct {
 	ConfigVersion   int            `json:"configVersion"`
 	Rules           []ScheduleRule `json:"rules"`
 	Ports           []PortMapping  `json:"ports,omitempty"`
+
+	// Authentication — matches Radarr/Sonarr Security panel model, mirrored
+	// across our Go containers (Clonarr v2.0.6, Constat v0.9.17). Credentials
+	// (bcrypt password hash, API key) live in /config/auth.json, NOT here, so
+	// .traffic-ui.json can be shared/exported without leaking secrets.
+	Authentication         string `json:"authentication,omitempty"`         // "forms" (default) | "basic" | "none"
+	AuthenticationRequired string `json:"authenticationRequired,omitempty"` // "enabled" | "disabled_for_local_addresses" (default)
+	TrustedProxies         string `json:"trustedProxies,omitempty"`         // comma-separated IPs — reverse-proxy deployments
+	TrustedNetworks        string `json:"trustedNetworks,omitempty"`        // comma-separated IPs/CIDRs for local-bypass; empty = Radarr-parity default
+	SessionTTLDays         int    `json:"sessionTtlDays,omitempty"`         // default 30
+
+	// Dashboard display preferences — purely visual, no effect on traffic
+	// shaping or auth. Kept in the UI config so changes don't require a
+	// container restart and are visible immediately to the user.
+	VPNIPDisplay          string `json:"vpnIpDisplay,omitempty"`          // "" (= "server") | "server" | "tunnel" | "both" | "off"
+	ForwardedPortsDisplay string `json:"forwardedPortsDisplay,omitempty"` // "" (= "off") | "off" | "auto" | "all"
 }
 
 const uiConfigPath = "/config/.traffic-ui.json"
 
-// ValidateConfig checks for invalid or dangerous values
+// ValidateConfig checks for invalid or dangerous values.
+// Auth fields are validated here in addition to auth.ValidateConfig so that
+// bad values get a 400 to the caller rather than a silent failure during
+// the live auth-store reload.
 func ValidateConfig(cfg *Config) error {
 	if cfg.DefaultDown < 0 || cfg.DefaultUp < 0 || cfg.DefaultDown > 10000 || cfg.DefaultUp > 10000 {
 		return fmt.Errorf("rates must be 0-10000 MB/s")
@@ -77,8 +115,8 @@ func ValidateConfig(cfg *Config) error {
 	if cfg.BurstMs < 100 || cfg.BurstMs > 5000 {
 		return fmt.Errorf("burst must be between 100 and 5000 ms")
 	}
-	if cfg.ConfigVersion < 1 {
-		cfg.ConfigVersion = 1
+	if cfg.ConfigVersion < CurrentConfigVersion {
+		cfg.ConfigVersion = CurrentConfigVersion
 	}
 	for i, rule := range cfg.Rules {
 		if !validTime.MatchString(rule.Time) {
@@ -103,6 +141,76 @@ func ValidateConfig(cfg *Config) error {
 			return fmt.Errorf("port %d: duplicate port %d", i+1, pm.Port)
 		}
 		seenPorts[pm.Port] = true
+		// Reject the credential mask sentinel reaching persistence. The PUT
+		// handler's merge loop replaces the mask for existing ports, but a
+		// freshly-added port has no prior entry to merge against — without
+		// this guard the literal "********" would be stored as the password
+		// and silently lock the user out of their qBit/Dispatcharr instance.
+		if pm.Password == credentialMask {
+			return fmt.Errorf("port %d (%s): password must be entered, not the masked placeholder", i+1, pm.Name)
+		}
+		if pm.APIKey == credentialMask {
+			return fmt.Errorf("port %d (%s): API key must be entered, not the masked placeholder", i+1, pm.Name)
+		}
+	}
+
+	// At most one PortMapping may auto-sync the dynamic forwarded port.
+	// PIA / Proton hand out one external port per tunnel; two qBits trying
+	// to bind that same incoming port would collide. Catch this at save
+	// time so the UI gets a clear 400 instead of silent runtime fights.
+	autoSyncCount := 0
+	autoSyncFirst := ""
+	for _, pm := range cfg.Ports {
+		if !pm.AutoSyncForwardedPort {
+			continue
+		}
+		if pm.Type != "" && pm.Type != "qbittorrent" {
+			return fmt.Errorf("port %d (%s): autoSyncForwardedPort is only valid for type=qbittorrent", pm.Port, pm.Name)
+		}
+		autoSyncCount++
+		if autoSyncFirst == "" {
+			autoSyncFirst = pm.Name
+		}
+	}
+	if autoSyncCount > 1 {
+		return fmt.Errorf("only one qBit instance may have autoSyncForwardedPort enabled (currently %d enabled, first: %s) — PIA/Proton give a single dynamic port per tunnel", autoSyncCount, autoSyncFirst)
+	}
+
+	// Auth fields — validate the shape so a bad UI submission is rejected
+	// with 400 before it hits the disk, instead of failing silently during
+	// the live auth-store reload.
+	switch cfg.Authentication {
+	case "", "forms", "basic", "none":
+	default:
+		return fmt.Errorf("authentication: %q (expected forms | basic | none)", cfg.Authentication)
+	}
+	switch cfg.AuthenticationRequired {
+	case "", "enabled", "disabled_for_local_addresses":
+	default:
+		return fmt.Errorf("authenticationRequired: %q (expected enabled | disabled_for_local_addresses)", cfg.AuthenticationRequired)
+	}
+	if cfg.SessionTTLDays < 0 || cfg.SessionTTLDays > 365 {
+		return fmt.Errorf("sessionTtlDays must be 0-365 (0 = use default)")
+	}
+	switch cfg.VPNIPDisplay {
+	case "", "server", "tunnel", "both", "off":
+	default:
+		return fmt.Errorf("vpnIpDisplay: %q (expected off | server | tunnel | both)", cfg.VPNIPDisplay)
+	}
+	switch cfg.ForwardedPortsDisplay {
+	case "", "off", "auto", "all":
+	default:
+		return fmt.Errorf("forwardedPortsDisplay: %q (expected off | auto | all)", cfg.ForwardedPortsDisplay)
+	}
+	if cfg.TrustedNetworks != "" {
+		if _, err := netsec.ParseTrustedNetworks(cfg.TrustedNetworks); err != nil {
+			return fmt.Errorf("trustedNetworks: %v", err)
+		}
+	}
+	if cfg.TrustedProxies != "" {
+		if _, err := netsec.ParseTrustedProxies(cfg.TrustedProxies); err != nil {
+			return fmt.Errorf("trustedProxies: %v", err)
+		}
 	}
 	return nil
 }
@@ -130,16 +238,26 @@ func loadConfig(confPath string) (*Config, error) {
 	// If both exist, use whichever was modified more recently
 	if haveJSON && haveConf {
 		if confInfo.ModTime().After(jsonInfo.ModTime()) {
-			// traffic.conf was edited manually — re-parse it, but preserve ports from JSON
+			// traffic.conf was edited manually — re-parse it, but preserve
+			// JSON-only fields (ports + auth). Bash config deliberately
+			// never carries auth fields; losing them here would silently
+			// reset the admin's Security-panel settings to defaults on the
+			// next initAuth or handlePutConfig read.
 			cfg, err := parseBashConfig(confPath)
 			if err != nil {
 				return nil, err
 			}
-			// Ports are only stored in JSON — preserve them
 			if data, err := os.ReadFile(uiConfigPath); err == nil {
 				var jsonCfg Config
 				if err := json.Unmarshal(data, &jsonCfg); err == nil {
 					cfg.Ports = jsonCfg.Ports
+					cfg.Authentication = jsonCfg.Authentication
+					cfg.AuthenticationRequired = jsonCfg.AuthenticationRequired
+					cfg.TrustedNetworks = jsonCfg.TrustedNetworks
+					cfg.TrustedProxies = jsonCfg.TrustedProxies
+					cfg.SessionTTLDays = jsonCfg.SessionTTLDays
+					cfg.VPNIPDisplay = jsonCfg.VPNIPDisplay
+					cfg.ForwardedPortsDisplay = jsonCfg.ForwardedPortsDisplay
 				}
 			}
 			return cfg, nil
@@ -255,26 +373,25 @@ func parseBashConfig(path string) (*Config, error) {
 
 // saveConfig writes both the UI JSON (authoritative) and the bash config
 // (consumed by nft-apply/svc-traffic).
+//
+// .traffic-ui.json is 0600 because it holds secrets (qBit passwords, SAB
+// API keys, Dispatcharr admin creds). traffic.conf is 0644 — read by the
+// root-owned svc-traffic service and the config generator never writes
+// secrets into it.
 func saveConfig(confPath string, cfg *Config) error {
-	// 1. Save UI JSON (full model with timeTo)
+	// 1. Save UI JSON (full model, contains secrets) — atomic + 0600.
 	jsonData, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal UI config: %w", err)
 	}
-	if err := os.WriteFile(uiConfigPath, jsonData, 0664); err != nil {
+	if err := atomicWriteFile(uiConfigPath, jsonData, 0600); err != nil {
 		return fmt.Errorf("write UI config: %w", err)
 	}
 
-	// 2. Generate bash config (expand timeTo into rule pairs)
+	// 2. Generate bash config (secret-free) — atomic + 0644.
 	bash := generateBashConfig(cfg)
-
-	tmpPath := confPath + ".tmp"
-	if err := os.WriteFile(tmpPath, []byte(bash), 0664); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, confPath); err != nil {
-		os.Remove(tmpPath)
-		return err
+	if err := atomicWriteFile(confPath, []byte(bash), 0644); err != nil {
+		return fmt.Errorf("write bash config: %w", err)
 	}
 
 	return nil
