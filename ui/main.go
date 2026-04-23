@@ -725,13 +725,41 @@ func (app *App) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	// Restore masked credentials from the on-disk config before validating.
 	// Still needed: the UI sends `credentialMask` sentinel for fields the
 	// user didn't touch, so we swap in the real stored values.
+	//
+	// Match strategy (resilient to config drift):
+	//   1. Primary: match by Port int — stable identifier for a running service.
+	//   2. Fallback: match by Name — survives edits where the user changed the
+	//      listening port number of a previously-configured instance. Without
+	//      this fallback, any port-number edit on the same save as a benign
+	//      Settings change (VPN IP badge, UI scale) would trip the
+	//      "API key must be entered" validator because the lookup misses and
+	//      the mask sentinel stays in the cfg going into ValidateConfig.
+	//   3. Last resort: positional index — handles the case where the UI
+	//      sends a Port=0 placeholder for a port it couldn't parse back out
+	//      of the GET payload. Only applied when both Port and Name fail AND
+	//      the index is in range for existing.Ports.
 	if existing != nil {
 		oldByPort := make(map[int]PortMapping, len(existing.Ports))
+		oldByName := make(map[string]PortMapping, len(existing.Ports))
 		for _, pm := range existing.Ports {
 			oldByPort[pm.Port] = pm
+			if pm.Name != "" {
+				oldByName[pm.Name] = pm
+			}
 		}
 		for i := range cfg.Ports {
-			old, ok := oldByPort[cfg.Ports[i].Port]
+			var old PortMapping
+			var ok bool
+			if cfg.Ports[i].Port != 0 {
+				old, ok = oldByPort[cfg.Ports[i].Port]
+			}
+			if !ok && cfg.Ports[i].Name != "" {
+				old, ok = oldByName[cfg.Ports[i].Name]
+			}
+			if !ok && i < len(existing.Ports) {
+				old = existing.Ports[i]
+				ok = true
+			}
 			if !ok {
 				continue
 			}
