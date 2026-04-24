@@ -701,6 +701,35 @@ func (app *App) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	// rules/ports/enabled, and the Bandwidth panel can send everything
 	// except auth fields without wiping them either.
 	existing, existingErr := loadConfig(app.configPath)
+
+	// Snapshot stored port credentials BEFORE the unmarshal. `cfg = *existing`
+	// below is a struct copy, but the Ports slice header shares the backing
+	// array with existing.Ports — so json.Unmarshal writing the masked
+	// sentinel into cfg.Ports[i].APIKey also mutates existing.Ports[i].APIKey.
+	// Building these snapshots after that would read back the mask instead of
+	// the real key, and the merge loop below would no-op the swap — failing
+	// validation with "API key must be entered, not the masked placeholder"
+	// on any save that includes a service with stored credentials (e.g. SAB
+	// + Tools-tab dropdown change). PortMapping has no slice/map fields, so
+	// value copies into these maps / the snapshot slice are deep enough.
+	var (
+		oldByPort      map[int]PortMapping
+		oldByName      map[string]PortMapping
+		existingPortsSnapshot []PortMapping
+	)
+	if existingErr == nil && existing != nil {
+		oldByPort = make(map[int]PortMapping, len(existing.Ports))
+		oldByName = make(map[string]PortMapping, len(existing.Ports))
+		existingPortsSnapshot = make([]PortMapping, len(existing.Ports))
+		for i, pm := range existing.Ports {
+			oldByPort[pm.Port] = pm
+			if pm.Name != "" {
+				oldByName[pm.Name] = pm
+			}
+			existingPortsSnapshot[i] = pm
+		}
+	}
+
 	var cfg Config
 	if existingErr == nil && existing != nil {
 		cfg = *existing
@@ -722,9 +751,9 @@ func (app *App) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.Unmarshal(bodyBytes, &sideband)
 
-	// Restore masked credentials from the on-disk config before validating.
-	// Still needed: the UI sends `credentialMask` sentinel for fields the
-	// user didn't touch, so we swap in the real stored values.
+	// Restore masked credentials from the pre-unmarshal snapshot before
+	// validating. The UI sends `credentialMask` sentinel for fields the
+	// user didn't touch; swap in the real stored values.
 	//
 	// Match strategy (resilient to config drift):
 	//   1. Primary: match by Port int — stable identifier for a running service.
@@ -737,38 +766,28 @@ func (app *App) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	//   3. Last resort: positional index — handles the case where the UI
 	//      sends a Port=0 placeholder for a port it couldn't parse back out
 	//      of the GET payload. Only applied when both Port and Name fail AND
-	//      the index is in range for existing.Ports.
-	if existing != nil {
-		oldByPort := make(map[int]PortMapping, len(existing.Ports))
-		oldByName := make(map[string]PortMapping, len(existing.Ports))
-		for _, pm := range existing.Ports {
-			oldByPort[pm.Port] = pm
-			if pm.Name != "" {
-				oldByName[pm.Name] = pm
-			}
+	//      the index is in range for the snapshot.
+	for i := range cfg.Ports {
+		var old PortMapping
+		var ok bool
+		if cfg.Ports[i].Port != 0 {
+			old, ok = oldByPort[cfg.Ports[i].Port]
 		}
-		for i := range cfg.Ports {
-			var old PortMapping
-			var ok bool
-			if cfg.Ports[i].Port != 0 {
-				old, ok = oldByPort[cfg.Ports[i].Port]
-			}
-			if !ok && cfg.Ports[i].Name != "" {
-				old, ok = oldByName[cfg.Ports[i].Name]
-			}
-			if !ok && i < len(existing.Ports) {
-				old = existing.Ports[i]
-				ok = true
-			}
-			if !ok {
-				continue
-			}
-			if cfg.Ports[i].Password == credentialMask {
-				cfg.Ports[i].Password = old.Password
-			}
-			if cfg.Ports[i].APIKey == credentialMask {
-				cfg.Ports[i].APIKey = old.APIKey
-			}
+		if !ok && cfg.Ports[i].Name != "" {
+			old, ok = oldByName[cfg.Ports[i].Name]
+		}
+		if !ok && i < len(existingPortsSnapshot) {
+			old = existingPortsSnapshot[i]
+			ok = true
+		}
+		if !ok {
+			continue
+		}
+		if cfg.Ports[i].Password == credentialMask {
+			cfg.Ports[i].Password = old.Password
+		}
+		if cfg.Ports[i].APIKey == credentialMask {
+			cfg.Ports[i].APIKey = old.APIKey
 		}
 	}
 

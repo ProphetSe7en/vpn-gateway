@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>vpn-gateway</Name>
-  <Repository>ghcr.io/prophetse7en/vpn-gateway:v1.4.1</Repository>
+  <Repository>ghcr.io/prophetse7en/vpn-gateway:v1.4.2</Repository>
   <Registry>https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway</Registry>
   <Branch>
-    <Tag>v1.4.1</Tag>
+    <Tag>v1.4.2</Tag>
     <TagDescription>Stable release (recommended)</TagDescription>
   </Branch>
   <Branch>
@@ -23,8 +23,10 @@
   <Category>Network:</Category>
   <TemplateURL>https://raw.githubusercontent.com/prophetse7en/unraid-templates/main/vpn-gateway.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/prophetse7en/vpn-gateway/main/icon.png</Icon>
-  <Date>2026-04-23</Date>
+  <Date>2026-04-24</Date>
   <Changes>
+### 2026-04-24
+- v1.4.2: Fix — completes the masked-credential fix from v1.4.1. The three-tier Port/Name/positional fallback couldn't recover because the snapshot of stored credentials was taken _after_ `json.Unmarshal` had already mutated the in-memory config via slice aliasing — so the lookup returned the masked placeholder instead of the real secret, and validation still rejected the save. Snapshot is now taken before the unmarshal. Also: toast notifications now linger longer (6 s for success, 9 s for errors) so the server message has time to be read.
 ### 2026-04-23
 - v1.4.1: Fix — saving any Settings panel no longer 400's when a monitored port has a masked credential (the "API key must be entered" error after v1.4.0 for users with SABnzbd or similar configured). Toast notifications moved to top-center for visibility on wide screens.
 ### 2026-04-22

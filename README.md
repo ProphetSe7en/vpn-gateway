@@ -38,10 +38,10 @@ docker build -t vpn-gateway:latest .
 
 > **⚠️ Use a pinned version tag, not `latest`.** This container manages your VPN and network routing — if an update introduces breaking changes, every container routed through it (qBittorrent, etc.) loses connectivity and won't recover until vpn-gateway is fixed or rolled back. Pin to a version and update manually when you're ready.
 
-**Latest version: `v1.4.1`** — [all tags](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
+**Latest version: `v1.4.2`** — [all tags](https://github.com/prophetse7en/vpn-gateway/pkgs/container/vpn-gateway)
 
 ```bash
-docker pull ghcr.io/prophetse7en/vpn-gateway:v1.4.1
+docker pull ghcr.io/prophetse7en/vpn-gateway:v1.4.2
 ```
 
 ### Run
@@ -59,7 +59,7 @@ docker run -d \
   -p 6050:6050 \
   -e VPN_EXPOSE_PORTS_ON_LAN=6050/tcp \
   -e PRIVNET=192.168.86.0/24 \
-  ghcr.io/prophetse7en/vpn-gateway:v1.4.1
+  ghcr.io/prophetse7en/vpn-gateway:v1.4.2
 ```
 
 On first start, a default `traffic.conf` is created in `/config/` with all options documented.
@@ -319,7 +319,7 @@ Route one or more qBittorrent containers through the VPN gateway so all torrent 
 
 **Install via Community Apps:** Search for **vpn gateway** (without hyphen) in the Apps tab — click Install and configure your WireGuard settings.
 
-**Or install manually:** Go to **Docker** → **Add Container**, set Repository to `ghcr.io/prophetse7en/vpn-gateway:v1.4.1`, and add the required paths, ports, and capabilities (see above).
+**Or install manually:** Go to **Docker** → **Add Container**, set Repository to `ghcr.io/prophetse7en/vpn-gateway:v1.4.2`, and add the required paths, ports, and capabilities (see above).
 
 The Web UI is available at `http://your-unraid-ip:6050`.
 
