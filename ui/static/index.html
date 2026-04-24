@@ -3395,7 +3395,11 @@ function app() {
 
     showToast(msg, type) {
       this.toast = { show: true, msg, type };
-      setTimeout(() => { this.toast.show = false; }, 3000);
+      // Errors linger longer — they often carry a server message the user
+      // needs to read or act on (e.g. validation details, 401 reason).
+      // Success messages are short-acking and can clear sooner.
+      const duration = type === 'toast-error' ? 9000 : 6000;
+      setTimeout(() => { this.toast.show = false; }, duration);
     }
   };
 }

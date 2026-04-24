@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.4.2
+
+Follow-up patch — v1.4.1 tried to fix the masked-credential validation error but left the root cause in place. v1.4.2 closes it properly.
+
+### Fixed
+
+- **"API key must be entered, not the masked placeholder" on Settings saves — for real this time.** v1.4.1 widened the unmask lookup to Port → Name → positional index, on the theory that port numbers didn't round-trip cleanly through the UI. That theory was wrong. The actual cause is a slice-aliasing bug in `handlePutConfig`: the struct copy `cfg = *existing` shares the `Ports` backing array with `existing.Ports`, so `json.Unmarshal` writing the `********` sentinel into `cfg.Ports[i].APIKey` also mutated `existing.Ports[i].APIKey`. The unmask loop then built its lookup map from the mutated `existing.Ports` — reading back `********` instead of the stored key — and the swap was a no-op. Validation rightly rejected the placeholder. Fix: snapshot the stored port credentials before the unmarshal, so the lookup map holds the real values when the merge runs. The three-tier fallback from v1.4.1 is preserved — it's still useful for genuine port-number edits — just fed from the pre-unmarshal snapshot.
+
+### Changed
+
+- **Toast duration bumped** — 3 s was too short to read longer server messages, especially validation errors with field names. Success toasts now linger 6 s, error toasts 9 s. Matches Clonarr's longer-is-better pattern without going all the way to its 8 s default (vpn-gateway's messages are single-line, not multi-line diffs).
+
 ## v1.4.1
 
 Patch release for two issues surfaced right after v1.4.0 rolled out.
