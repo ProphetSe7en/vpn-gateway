@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.4.3
+
+Maintenance release.
+
+### Changed
+
+- **TRUSTED_PROXIES accepts CIDR ranges** alongside literal IPs. Same as the other containers — useful when the reverse proxy lives on a Docker bridge with dynamic container IPs.
+- **Go toolchain bumped to 1.25.10** for upstream `govulncheck` fixes in the standard library.
+- **Base image refreshed** to the latest `ghcr.io/hotio/base:alpinevpn` (s6-overlay execline 2.9.9.0, upstream Alpine + apk metadata updates).
+
 ## v1.4.2
 
 Follow-up patch — v1.4.1 tried to fix the masked-credential validation error but left the root cause in place. v1.4.2 closes it properly.

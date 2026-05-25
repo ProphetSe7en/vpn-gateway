@@ -49,7 +49,7 @@ var nftPortRe = regexp.MustCompile(`tcp [sd]port (\d+)\b.*?counter packets \d+ b
 //   - output chain (tcp sport <port>): bytes flowing TO LAN clients (stream data)
 //   - input chain (tcp dport <port>): bytes flowing FROM LAN clients (control/ACKs)
 //
-// Multiple subnet rules per port (e.g. 192.168.0.0/24, 192.168.2.0/24)
+// Multiple subnet rules per port (e.g. 192.168.0.0/24, 192.168.1.0/24)
 // are summed together.
 func parseNftPortBytes(chainOutput string, port int) uint64 {
 	var total uint64

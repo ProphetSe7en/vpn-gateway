@@ -11,13 +11,12 @@
 
 **Please do NOT open a public GitHub issue for security bugs.** Even describing an attack path in a public forum before a fix ships puts other users at risk.
 
-### Preferred channel
+### Reporting channel
 
-Email: **ProphetSe7en@users.noreply.github.com** with subject line `[vpn-gateway Security] <brief summary>`.
+Use GitHub's private vulnerability reporting:
+**[Report a vulnerability](https://github.com/ProphetSe7en/vpn-gateway/security/advisories/new)**
 
-### Fallback
-
-If email fails or you need pseudonymous submission, use GitHub's private **Report a vulnerability** link on the [repository security tab](https://github.com/ProphetSe7en/vpn-gateway/security/advisories/new).
+This is the only intended channel — reports stay private to maintainers, and there is no e-mail thread to leak.
 
 ### What to include
 
