@@ -437,7 +437,8 @@ func (d *dispatcharrPoller) getStatusWith(ctx context.Context, mapping PortMappi
 // is not in scope — users who want it can expose Dispatcharr via a
 // reverse proxy on the same namespace.
 func dispatcharrURL(mapping PortMapping, path string) string {
-	return fmt.Sprintf("http://localhost:%d%s", mapping.Port, path)
+	// Literal IPv4 loopback, not "localhost" — see poller_qbit.go doWith.
+	return fmt.Sprintf("http://127.0.0.1:%d%s", mapping.Port, path)
 }
 
 // --- ServiceDetailer implementation (Phase 3b: Active Streams panel) ---

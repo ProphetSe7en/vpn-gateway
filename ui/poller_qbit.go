@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"vpn-gateway-ui/netsec"
 )
 
 // qBitPoller implements ServicePoller for qBittorrent's WebUI API.
@@ -37,7 +39,12 @@ type qBitPoller struct {
 // 15 s budget. The context timeout we pass in is advisory on top of
 // this ceiling — the http.Client.Timeout is a wall-clock cap that
 // applies to the entire request chain regardless of context.
-var qbitWriteClient = &http.Client{Timeout: 15 * time.Second}
+//
+// Like httpClient it is a netsec safe client (not a bare http.Client)
+// sharing the loopback allowlist, so the credential-bearing
+// setPreferences write also gets Proxy: nil and per-request IP
+// re-validation.
+var qbitWriteClient = netsec.NewSafeHTTPClient(15*time.Second, loopbackAllowlist)
 
 // authBackoffDuration is the cool-off applied after qBit rejects login
 // enough times in a row that the next attempt would likely trip its
@@ -147,7 +154,10 @@ func (q *qBitPoller) doWrite(ctx context.Context, mapping PortMapping, method, p
 // doWith is the shared worker for do/doWrite. body may be nil. Caller
 // is responsible for Close() on the returned Response when err is nil.
 func (q *qBitPoller) doWith(ctx context.Context, mapping PortMapping, method, path string, body io.Reader, client *http.Client) (*http.Response, error) {
-	u := fmt.Sprintf("http://localhost:%d%s", mapping.Port, path)
+	// Dial the literal IPv4 loopback rather than "localhost": the safe
+	// client's dialer only attempts the first resolved IP, so a host that
+	// resolves "localhost" to ::1 first would break IPv4-only services.
+	u := fmt.Sprintf("http://127.0.0.1:%d%s", mapping.Port, path)
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, err

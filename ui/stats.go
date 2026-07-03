@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"vpn-gateway-ui/netsec"
 )
 
 // PortRate holds per-port rx/tx for a single point
@@ -637,10 +640,25 @@ func parseNftCounterBytes(nftOutput, comment string) uint64 {
 	return 0
 }
 
+// loopbackAllowlist permits the IPv4 loopback that every poller dials.
+// The qBit / SAB / Dispatcharr containers share vpn-gateway's network
+// namespace, so the pollers only ever reach http://127.0.0.1:<port> —
+// which the safe client would otherwise reject as a blocked SSRF
+// destination. Allowing this one address through keeps the safe
+// client's other guarantees, chiefly Proxy: nil so an attacker-set
+// HTTP_PROXY cannot route qBit login credentials through an external
+// proxy. The pollers dial the literal IP (not "localhost") so the
+// safe client's dialer never has to resolve a name or choose between
+// dual-stack addresses.
+var loopbackAllowlist = []net.IP{net.ParseIP("127.0.0.1")}
+
 // qBitTransferInfo now lives in poller_qbit.go alongside the qBitPoller
 // implementation. This var stays here because httpClient is shared between
-// stats.go (interface bytes) and poller_qbit.go (HTTP request).
-var httpClient = &http.Client{Timeout: 3 * time.Second}
+// stats.go (interface bytes) and poller_qbit.go (HTTP request). It is a
+// netsec safe client (3 s read timeout) rather than a bare http.Client so
+// outbound poller traffic gets Proxy: nil + TLS floor + per-request IP
+// re-validation; the loopback allowlist keeps the localhost targets working.
+var httpClient = netsec.NewSafeHTTPClient(3*time.Second, loopbackAllowlist)
 
 // syncPortCounters reads config and updates port counter list (no nft rules needed)
 func (tc *TrafficCollector) syncPortCounters() {

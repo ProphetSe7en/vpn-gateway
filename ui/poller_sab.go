@@ -218,7 +218,8 @@ func (s *sabPoller) get(ctx context.Context, mapping PortMapping, mode string) (
 	q.Set("mode", mode)
 	q.Set("output", "json")
 	q.Set("apikey", mapping.APIKey)
-	full := fmt.Sprintf("http://localhost:%d/api?%s", mapping.Port, q.Encode())
+	// Literal IPv4 loopback, not "localhost" — see poller_qbit.go doWith.
+	full := fmt.Sprintf("http://127.0.0.1:%d/api?%s", mapping.Port, q.Encode())
 	req, err := http.NewRequestWithContext(ctx, "GET", full, nil)
 	if err != nil {
 		return nil, err
