@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.4.4
+
+Security and maintenance release.
+
+### Changed
+
+- **Hardened how vpn-gateway reaches your qBittorrent, SABnzbd, and Dispatcharr instances.** Those requests now always go straight to the local service inside the shared VPN network, and can no longer be redirected by a proxy setting in the container's environment. No configuration change needed.
+- **Base image updated** to the latest `ghcr.io/hotio/base:alpinevpn` for current Alpine 3.23.5, OpenSSL, and expat security patches. No change to the traffic-shaping engine.
+
 ## v1.4.3
 
 Maintenance release.
