@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Manual run creates or updates the GitHub Release for an existing tag
+  # (for example a release that predates the release job). It does not
+  # build or push an image.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag to create the GitHub Release for (e.g. v1.4.5)'
+        required: true
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -11,6 +20,7 @@ env:
 
 jobs:
   build:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -65,3 +75,62 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
           sbom: false
+
+  # Creates the GitHub Release for a clean vX.Y.Z tag once the image build
+  # succeeded, so "Releases only" watchers get notified. The body is the
+  # tag's "## vX.Y.Z" section of CHANGELOG.md, so the Release page never
+  # drifts from the changelog.
+  #
+  # Uses only the short-lived, repo-scoped GITHUB_TOKEN that Actions issues
+  # for this run (no personal access token anywhere) and the gh CLI that is
+  # preinstalled on the runner (no third-party action with write access).
+  release:
+    needs: build
+    if: >-
+      always() && (
+        github.event_name == 'workflow_dispatch' ||
+        (needs.build.result == 'success' &&
+         startsWith(github.ref, 'refs/tags/v') &&
+         !contains(github.ref, '-'))
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - name: Validate tag
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$TAG' is not a vX.Y.Z tag"
+            exit 1
+          fi
+
+      - name: Checkout tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+
+      - name: Extract CHANGELOG section
+        run: |
+          awk -v ver="## ${TAG}" '
+            $0 == ver { found=1; next }
+            found && /^## v/ { exit }
+            found { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          if [[ ! -s "$RUNNER_TEMP/release-notes.md" ]]; then
+            echo "::error::No '## ${TAG}' section found in CHANGELOG.md"
+            exit 1
+          fi
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
