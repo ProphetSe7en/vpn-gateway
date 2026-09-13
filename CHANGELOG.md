@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.4.5
+
+### Fixed
+
+- **qBittorrent 5.2 and newer can log in again.** qBittorrent 5.2 changed how its login works, so vpn-gateway could not sign in when a Username and Password were set. Traffic stats and the automatic port update for PIA and Proton stopped working. Both older and newer qBittorrent versions now work.
+- **Correcting a wrong qBittorrent password takes effect right away.** After a few failed logins, vpn-gateway used to wait 15 minutes even once the password was fixed.
+
+### Changed
+
+- **Base image updated** to the latest `ghcr.io/hotio/base:alpinevpn`. This brings s6-overlay 3.2.3.2 plus OpenSSL, curl, and other Alpine security patches. No change to the traffic-shaping engine.
+- **Updated for the new s6-overlay service layout**, so all hotio services keep starting as before: the VPN healthcheck, Unbound DNS, PIA and Proton port forwarding, and Privoxy. No configuration change needed.
+
 ## v1.4.4
 
 Security and maintenance release.

@@ -3,7 +3,7 @@ FROM golang:1.25.9-alpine AS builder
 WORKDIR /build
 COPY ui/ .
 RUN go mod download
-ARG APP_VERSION=1.4.4
+ARG APP_VERSION=1.4.5
 RUN CGO_ENABLED=0 go build -o vpn-gateway-ui -ldflags="-s -w -X main.Version=${APP_VERSION}" .
 
 # --- Stage 2: Runtime ---
@@ -12,9 +12,15 @@ RUN CGO_ENABLED=0 go build -o vpn-gateway-ui -ldflags="-s -w -X main.Version=${A
 #   v1.2.x - v1.3.x → 2026-02-23 (a3f171bc…) — Alpine 3.21
 #   v1.4.0 - v1.4.2 → 2026-04-17 (f34cfccf…) — Alpine 3.21→3.22 refresh + service-pia / service-healthcheck 4-space indent fix
 #   v1.4.3          → 2026-05-17 (38fffcf0…) — Alpine 3.23, s6-overlay 3.2.3.0
-#   v1.4.4+         → 2026-06-30 (496a867c…) — Alpine 3.23.5 point release; OpenSSL 3.5.7, expat 2.8.2, ca-certificates security patches. nftables / wireguard-tools / iproute2 / s6-overlay unchanged.
+#   v1.4.4          → 2026-06-30 (496a867c…) — Alpine 3.23.5 point release; OpenSSL 3.5.7, expat 2.8.2, ca-certificates security patches. nftables / wireguard-tools / iproute2 / s6-overlay unchanged.
+#   v1.4.5+         → 2026-09-10 (71f47b74…): s6-overlay 3.2.3.2 (s6-rc 0.7.0.0); OpenSSL 3.5.8, curl 8.22 security patches. nftables / wireguard-tools / iproute2 unchanged.
 # To check current upstream: docker pull ghcr.io/hotio/base:alpinevpn && docker inspect --format '{{.RepoDigests}}' ghcr.io/hotio/base:alpinevpn
-FROM ghcr.io/hotio/base@sha256:496a867ce1c643896313654132f9a87dfea97317843fdfd9bd07de63e37b25ec
+#
+# The user bundle lives in /etc/s6-overlay/user-bundles.d/user/ (s6-overlay >= 3.2.3.1).
+# Never recreate /etc/s6-overlay/s6-rc.d/user/: when that directory exists, s6-overlay
+# ignores user-bundles.d entirely and the hotio services (healthcheck, unbound,
+# port forwarding, privoxy) silently stop starting.
+FROM ghcr.io/hotio/base@sha256:71f47b74b128b4903d298f9d1a13c2bd0f7564059252cecfeb77e33e9eb0696c
 
 LABEL maintainer="ProphetSe7en" \
       description="VPN gateway with nftables bandwidth limiting, scheduling, and web UI"
