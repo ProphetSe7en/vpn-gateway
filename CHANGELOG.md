@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.4.6
+
+### Fixed
+
+- **The VPN IP badge is now called "VPN server".** It shows the address your tunnel connects to. With most providers that is also the address websites and trackers see, but some providers, PIA among them, send traffic out through another address. The old label promised more than it could tell you. Settings now points you to where you can check the address the outside world sees. The badge still offers the same choices: VPN server, tunnel address, both, or off.
+
+### Changed
+
+- **Base image updated** with the latest security patches. Nothing changes in how the gateway works.
+
 ## v1.4.5
 
 ### Fixed
@@ -112,7 +122,7 @@ Patch release for two issues surfaced right after v1.4.0 rolled out.
 - **Test button for saved ports** — `POST /api/test-port` now resolves the `********` credential-mask sentinel by looking up the port in the on-disk config. Before: every "Test" click on a saved entry failed with auth error, even when stored credentials were correct
 - **Session-expiry mid-edit** — saves, API-key regeneration, and password change now redirect to `/login` on 401 instead of showing a generic "Failed to save" toast. Handled centrally in the fetch wrapper so ~50 API call sites across the UI inherit the behavior without per-call boilerplate
 - **Alpine `:style` vs `x-show` conflict** — an initial implementation of the VPN IP badge used `:style="... ? 'margin-left:auto' : ''"` which replaced the entire inline style attribute and wiped the `display:none` that `x-show` sets. Fixed by switching to object syntax `{marginLeft: ...}` so Alpine sets `element.style.marginLeft` directly without touching `display`
-- **VPN IP semantic correction** — a pre-release draft of the VPN IP badge showed `10.13.128.x` (our client-side WireGuard address, read from `ip addr show wg0`). Users expect "VPN IP" to mean the server-side exit IP visible externally. Final implementation parses `Endpoint` from the `[Peer]` section of `wg0.conf` (or `wg show` when available), which is what hotio logs on startup
+- **VPN IP semantic correction** — a pre-release draft of the VPN IP badge showed the client-side tunnel address (read from `ip addr show wg0`). Users expect "VPN IP" to mean the server-side exit IP visible externally. Final implementation parses `Endpoint` from the `[Peer]` section of `wg0.conf` (or `wg show` when available), which is what hotio logs on startup
 - **Static forwarded-port display** — first cut showed `55000→55000/tcp` per `VPN_PORT_REDIRECTS` entry. Container port + protocol are Docker implementation details and noise for the dashboard — now just the VPN port number, symmetric with the dynamic-port display
 
 ### Notes for upgraders

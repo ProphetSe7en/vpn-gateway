@@ -580,10 +580,10 @@
          48 h after the change, with the previous value in the tooltip. -->
     <div x-show="vpngwInfoRowVisible()" class="vpngw-info-row">
 
-      <!-- VPN server IP (exit) — shown in 'server' and 'both' modes -->
+      <!-- VPN server IP (the address the tunnel connects to), shown in 'server' and 'both' modes -->
       <span x-show="(config.vpnIpDisplay === 'server' || config.vpnIpDisplay === 'both') && exitIp"
         class="vpngw-info-cell">
-        <span class="vpngw-info-label" x-text="config.vpnIpDisplay === 'both' ? 'Server:' : 'VPN IP:'"></span>
+        <span class="vpngw-info-label" x-text="config.vpnIpDisplay === 'both' ? 'Server:' : 'VPN server:'"></span>
         <code class="vpngw-info-value"
           :class="{'vpngw-changed': isRecentlyChanged(exitIpChangedAt)}"
           :title="ipTooltip('exit', exitIp, exitIpPrevious, exitIpChangedAt)"
@@ -999,16 +999,20 @@
             <div class="setting-value">
               <select class="input" style="max-width:320px"
                 x-model="config.vpnIpDisplay" @change="save()">
-                <option value="server">VPN server IP (exit) — what the world sees</option>
+                <option value="server">VPN server IP (the address the tunnel connects to)</option>
                 <option value="tunnel">Tunnel IP — our address inside the tunnel</option>
                 <option value="both">Both (Server + Tunnel)</option>
                 <option value="off">Off — hide the badge</option>
               </select>
               <div class="setting-help">
-                <strong>Server IP</strong> comes from the <code>Endpoint</code> line in
-                <code>wg0.conf</code> — this is the VPN provider's public IP that
-                external services see when tunneled traffic reaches the internet
-                (e.g. <code>203.0.113.10</code>).
+                <strong>VPN server IP</strong> is the address this container's tunnel
+                connects to, read from WireGuard (e.g. <code>203.0.113.10</code>).
+                With most providers that is also the address external services see.
+                Some providers, PIA among them, send traffic out through a different
+                address, so this value can differ from the IP a tracker or website
+                reports. To check the address the outside world sees, look at a client
+                running through the gateway, such as qBittorrent, or at the
+                <code>[VPN] [IPV4]</code> line in this container's log at startup.
                 <strong>Tunnel IP</strong> is the address the provider assigned on our
                 side of the WireGuard tunnel (e.g. <code>10.2.0.2</code>) — useful
                 for debugging routing, not for verifying your exit IP. Shows in the
@@ -1635,10 +1639,10 @@ function app() {
     activeRule: { source: 'default', index: 0 },
     gwName: 'VPN Gateway',
     appVersion: '',
-    // VPN endpoint data from /api/status. exitIp is the public IP of
-    // the VPN server (from the Endpoint line in wg0.conf) — the IP
-    // external services see when our traffic exits the tunnel. This is
-    // the "VPN IP" users care about verifying. tunnelIp is the IP the
+    // VPN endpoint data from /api/status. exitIp is the VPN server
+    // address the tunnel connects to, which for most providers is also
+    // the address external services see (PIA is a known exception, so
+    // the UI labels it "VPN server"). tunnelIp is the IP the
     // provider assigned on OUR side of the tunnel (wg0 interface) —
     // useful for debugging but secondary, shown in tooltip.
     exitIp: '',
@@ -1930,7 +1934,7 @@ function app() {
         return 'Changed ' + this.timeAgo(changedAt) + ' from ' + previous;
       }
       if (kind === 'exit') {
-        return 'VPN server IP — Endpoint from wg0.conf (the public IP external services see)';
+        return 'VPN server IP: the address the tunnel connects to. With some providers, PIA included, traffic exits through a different address';
       }
       return 'Tunnel IP on ' + (this.tunnelIface || 'wg0') + ' — our address inside the tunnel';
     },

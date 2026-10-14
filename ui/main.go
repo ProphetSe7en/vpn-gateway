@@ -376,9 +376,12 @@ func (app *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"activeRule":      activeRule,
 		"hostname":        "VPN Gateway",
 		"version":         Version,
-		// Exit IP — the public IP of the VPN server, read from the peer
-		// Endpoint line in wg0.conf. This is the IP external services see
-		// when our traffic exits the tunnel. Primary "VPN IP" for users.
+		// exitIp is the VPN server address our tunnel connects to (live
+		// peer endpoint, config file as fallback). With most providers it
+		// is also the address external services see, but not always: PIA
+		// NATs outbound traffic through a different address, so this is
+		// labelled "VPN server" in the UI, not "the IP the world sees".
+		// The JSON key keeps its name for API compatibility.
 		"exitIp":          exitIP,
 		"exitPort":        exitPort,
 		"exitIpPrevious":  hist.ExitIP.Previous,
@@ -579,10 +582,13 @@ func readLiveEndpoint(iface string) (ip, port string) {
 
 // readWireguardEndpoint parses the Endpoint line from wg0.conf's [Peer]
 // section and returns (ip, port) as strings. This is the VPN server's
-// public address — for all standard VPN providers (PIA, TorGuard, Proton,
-// Mullvad, generic WireGuard) this is also the exit IP that external
-// services see when tunneled traffic reaches the internet. The server NATs
-// outbound traffic through its own IP.
+// public address, the one the tunnel connects to. For most providers
+// (TorGuard, Proton, Mullvad, generic WireGuard) the server also NATs
+// outbound traffic through that same address, so it doubles as the exit
+// IP. PIA is a known exception: the address a tracker or website reports
+// can differ from this endpoint, which is why the UI calls it the VPN
+// server address. Reading the real exit IP would need an outbound lookup
+// through the tunnel; we deliberately make no such call.
 //
 // Returns ("", "") on:
 //   - File missing or unreadable (pre-setup, wrong path, permissions)
