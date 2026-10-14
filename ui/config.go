@@ -98,11 +98,16 @@ type Config struct {
 	// Dashboard display preferences — purely visual, no effect on traffic
 	// shaping or auth. Kept in the UI config so changes don't require a
 	// container restart and are visible immediately to the user.
-	VPNIPDisplay          string `json:"vpnIpDisplay,omitempty"`          // "" (= "server") | "server" | "tunnel" | "both" | "off"
+	// VPNIPDisplay picks which address the dashboard badge shows.
+	// "exit" is the only mode that looks the address up on the internet,
+	// which is why it is opt-in: see exit_ip.go.
+	VPNIPDisplay          string `json:"vpnIpDisplay,omitempty"`          // "" (= "server") | "server" | "tunnel" | "exit" | "both" | "off"
 	ForwardedPortsDisplay string `json:"forwardedPortsDisplay,omitempty"` // "" (= "off") | "off" | "auto" | "all"
 }
 
-const uiConfigPath = "/config/.traffic-ui.json"
+// uiConfigPath is a var, not a const, so tests can point the UI-config
+// reader at a temporary directory.
+var uiConfigPath = "/config/.traffic-ui.json"
 
 // ValidateConfig checks for invalid or dangerous values.
 // Auth fields are validated here in addition to auth.ValidateConfig so that
@@ -193,9 +198,9 @@ func ValidateConfig(cfg *Config) error {
 		return fmt.Errorf("sessionTtlDays must be 0-365 (0 = use default)")
 	}
 	switch cfg.VPNIPDisplay {
-	case "", "server", "tunnel", "both", "off":
+	case "", "server", "tunnel", "exit", "both", "off":
 	default:
-		return fmt.Errorf("vpnIpDisplay: %q (expected off | server | tunnel | both)", cfg.VPNIPDisplay)
+		return fmt.Errorf("vpnIpDisplay: %q (expected off | server | tunnel | exit | both)", cfg.VPNIPDisplay)
 	}
 	switch cfg.ForwardedPortsDisplay {
 	case "", "off", "auto", "all":
@@ -452,10 +457,10 @@ func generateBashConfig(cfg *Config) string {
 
 // ActiveRuleInfo describes which rule is currently in effect
 type ActiveRuleInfo struct {
-	Source    string `json:"source"`              // "rule", "default", "disabled"
-	Index     int    `json:"index"`               // 1-based rule index (0 if default/disabled)
-	Time      string `json:"time"`                // rule time (empty if default)
-	Days      string `json:"days"`                // rule days (empty if default)
+	Source    string `json:"source"` // "rule", "default", "disabled"
+	Index     int    `json:"index"`  // 1-based rule index (0 if default/disabled)
+	Time      string `json:"time"`   // rule time (empty if default)
+	Days      string `json:"days"`   // rule days (empty if default)
 	Down      int    `json:"down"`
 	Up        int    `json:"up"`
 	NextIndex int    `json:"nextIndex,omitempty"` // 1-based index of next rule (0 if none)

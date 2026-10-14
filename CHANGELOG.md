@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.4.8
+
+### Added
+
+- **The badge can now show the address the outside world actually sees.** Pick "Exit IP" under the VPN IP badge setting and vpn-gateway measures it, by asking a public address through the tunnel which address your traffic arrives from, repeated every 15 minutes and whenever the tunnel moves to another server. This matters on providers such as PIA, where the server your tunnel connects to and the address a tracker or website reports are two different addresses. It is the only badge option that sends a request outside your network, so it stays off unless you choose it.
+- **The dashboard now tells you when qBittorrent is not using your forwarded port.** For PIA and Proton, where the provider hands out a port that can change, vpn-gateway asks qBittorrent which port it is listening on and compares the two. If they disagree you get a short notice with both numbers, and a pointer to the "Auto-sync listening port" setting if you want vpn-gateway to keep them in step. Turning that on stays your choice, and nothing in qBittorrent is changed unless you do. If the port cannot be checked, usually because the instance has no Username and Password, the notice says that instead.
+- **The container log now states what the port sync is doing** at startup: which instance it watches, the port your provider handed out, and the port qBittorrent is on. Previously it only logged when it pushed a new port, so a setup that was never switched on looked the same as one that was working.
+
+### Changed
+
+- **Values on the dashboard are only green when they have been checked.** The forwarded port turns green once qBittorrent is confirmed to be listening on it, and the Exit IP is green because it is measured. Values that are simply read from the VPN container, such as the VPN server address, are shown in a neutral colour, because green reads as "verified" and we had not verified them.
+
 ## v1.4.7
 
 ### Fixed

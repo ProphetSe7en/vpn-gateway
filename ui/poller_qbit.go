@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -235,10 +236,17 @@ func (q *qBitPoller) doWith(ctx context.Context, mapping PortMapping, method, pa
 	return client.Do(req)
 }
 
-// errQBitNoCredentials is returned when qBit rejects the session but no
-// Username/Password is configured, so there is nothing to log in with.
+// errQBitLoginRequired marks the case where qBit demands a login and the
+// instance has no Username/Password. Callers match on it with errors.Is to
+// tell "needs credentials" apart from any other read failure, instead of
+// assuming blank credentials cannot work: hotio-style setups with
+// LocalHostAuth=false answer fine without any.
+var errQBitLoginRequired = errors.New("qBittorrent requires a login but no Username/Password is configured for this port")
+
+// errQBitNoCredentials wraps errQBitLoginRequired with the status qBit
+// answered, for the log and the UI.
 func errQBitNoCredentials(status int) error {
-	return fmt.Errorf("qbit: status %d, qBittorrent requires a login but no Username/Password is configured for this port", status)
+	return fmt.Errorf("qbit: status %d, %w", status, errQBitLoginRequired)
 }
 
 // login POSTs to /api/v2/auth/login and caches the returned session
@@ -368,6 +376,56 @@ func (q *qBitPoller) clearAuthFailure(key qbitAuthKey) {
 // disturbing any other setting the admin has tuned. Success is any 2xx:
 // 200 up to 5.1, 204 from 5.2. Returns nil on success, error otherwise
 // (caller logs and retries on the next tick).
+// ListeningPort reads the port qBittorrent is actually listening on, via
+// GET /api/v2/app/preferences. The dashboard compares it against the port
+// the VPN provider handed out so a mismatch can be surfaced instead of
+// showing a port number that looks confirmed but was only read from
+// hotio's forwarded_port file. Same auth flow as Poll: cached session,
+// one re-login when qBit rejects it.
+//
+// Returns 0 with an error when the value cannot be read, so callers can
+// say "cannot check" rather than imply agreement.
+func (q *qBitPoller) ListeningPort(ctx context.Context, mapping PortMapping) (int, error) {
+	// The preferences blob is far larger than transfer/info, so this read
+	// gets the 15 s client rather than the 3 s one tuned for stats polls.
+	resp, err := q.doWrite(ctx, mapping, "GET", "/api/v2/app/preferences", nil)
+	if err != nil {
+		return 0, err
+	}
+	if qbitSessionRejected(resp.StatusCode) {
+		resp.Body.Close()
+		if mapping.Username == "" && mapping.Password == "" {
+			return 0, errQBitNoCredentials(resp.StatusCode)
+		}
+		if err := q.login(ctx, mapping); err != nil {
+			return 0, err
+		}
+		resp, err = q.doWrite(ctx, mapping, "GET", "/api/v2/app/preferences", nil)
+		if err != nil {
+			return 0, err
+		}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("qbit: status %d on /api/v2/app/preferences", resp.StatusCode)
+	}
+	// Decode only listen_port: the preferences blob is large and every
+	// other field is irrelevant here.
+	var prefs struct {
+		ListenPort int `json:"listen_port"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&prefs); err != nil {
+		return 0, fmt.Errorf("qbit: decoding preferences: %w", err)
+	}
+	if prefs.ListenPort == 0 {
+		return 0, fmt.Errorf("qbit: no listening port is set yet")
+	}
+	if prefs.ListenPort < 0 || prefs.ListenPort > 65535 {
+		return 0, fmt.Errorf("qbit: preferences reported listen_port %d", prefs.ListenPort)
+	}
+	return prefs.ListenPort, nil
+}
+
 func (q *qBitPoller) SetListeningPort(ctx context.Context, mapping PortMapping, port int) error {
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("qbit setPreferences: invalid port %d", port)

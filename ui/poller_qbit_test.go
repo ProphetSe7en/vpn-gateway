@@ -27,6 +27,7 @@ type fakeQBit struct {
 	session    string
 	logins     int
 	listenPort int
+	writes     int
 }
 
 func newFakeQBit(t *testing.T, v52 bool) (*fakeQBit, PortMapping) {
@@ -78,6 +79,8 @@ func (f *fakeQBit) serve(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/v2/transfer/info":
 		_ = json.NewEncoder(w).Encode(qBitTransferInfo{DlInfoSpeed: 10, UpInfoSpeed: 20, DlInfoData: 30, UpInfoData: 40})
+	case "/api/v2/app/preferences":
+		_ = json.NewEncoder(w).Encode(map[string]any{"listen_port": f.listenPort, "dht": true})
 	case "/api/v2/app/setPreferences":
 		_ = r.ParseForm()
 		var prefs struct {
@@ -85,6 +88,7 @@ func (f *fakeQBit) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.Unmarshal([]byte(r.PostForm.Get("json")), &prefs)
 		f.listenPort = prefs.ListenPort
+		f.writes++
 		if f.v52 {
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -104,6 +108,18 @@ func (f *fakeQBit) state() (logins, listenPort int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.logins, f.listenPort
+}
+
+func (f *fakeQBit) writeCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.writes
+}
+
+func (f *fakeQBit) setListenPort(port int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listenPort = port
 }
 
 var qbitVersions = []struct {
@@ -277,5 +293,36 @@ func TestIsQBitSessionCookie(t *testing.T) {
 		if got := isQBitSessionCookie(name); got != want {
 			t.Errorf("isQBitSessionCookie(%q) = %v, want %v", name, got, want)
 		}
+	}
+}
+
+func TestQBitListeningPort(t *testing.T) {
+	for _, v := range qbitVersions {
+		t.Run(v.name, func(t *testing.T) {
+			f, mapping := newFakeQBit(t, v.v52)
+			f.listenPort = 31506
+			q := &qBitPoller{}
+			// Fresh poller: no session, so this exercises the 403 then
+			// re-login path that reading preferences shares with Poll.
+			got, err := q.ListeningPort(testCtx(t), mapping)
+			if err != nil {
+				t.Fatalf("ListeningPort: %v", err)
+			}
+			if got != 31506 {
+				t.Fatalf("listen_port = %d, want 31506", got)
+			}
+			if logins, _ := f.state(); logins != 1 {
+				t.Fatalf("logins = %d, want 1", logins)
+			}
+		})
+	}
+}
+
+func TestQBitListeningPortWithoutCredentials(t *testing.T) {
+	_, mapping := newFakeQBit(t, true)
+	mapping.Username, mapping.Password = "", ""
+	if _, err := (&qBitPoller{}).ListeningPort(testCtx(t), mapping); err == nil ||
+		!strings.Contains(err.Error(), "no Username/Password is configured") {
+		t.Fatalf("err = %v, want missing-credentials error", err)
 	}
 }

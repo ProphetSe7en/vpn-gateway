@@ -509,9 +509,14 @@
     font-size: 12px;
     font-weight: 600;
   }
+  /* Values render neutral by default: most of them are read from a file or
+     from WireGuard and are not verified against anything, and green in a
+     dashboard reads as "checked and fine". Green is reserved for
+     .vpngw-confirmed, currently the forwarded port when qBittorrent is
+     confirmed to be listening on it. */
   .vpngw-info-value {
     background: transparent !important;
-    color: #3fb950 !important;
+    color: #c9d1d9 !important;
     font-family: ui-monospace, "SFMono-Regular", Consolas, monospace !important;
     text-decoration: none !important;
     cursor: default !important;
@@ -525,6 +530,27 @@
      base rule and the override here also being !important. */
   .vpngw-info-value.vpngw-changed {
     color: #d29922 !important;
+  }
+  .vpngw-info-value.vpngw-confirmed {
+    color: #3fb950 !important;
+  }
+  /* Port mismatch notice under the info row. Amber, not red: nothing is
+     broken in vpn-gateway, the two numbers simply disagree and the user
+     decides what to do about it. */
+  .vpngw-port-notice {
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    border-left: 3px solid #d29922;
+    background: #1c1a12;
+    color: #c9d1d9;
+    font-size: 12px;
+    line-height: 1.5;
+    border-radius: 3px;
+  }
+  .vpngw-port-notice code {
+    background: transparent;
+    color: #d29922;
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
   }
   /* Multi-port comma separator — adds ", " after each value except the
      last one in the same parent cell. Cleaner than putting a literal
@@ -582,21 +608,28 @@
 
       <!-- VPN server IP (the address the tunnel connects to), shown in 'server' and 'both' modes -->
       <span x-show="(config.vpnIpDisplay === 'server' || config.vpnIpDisplay === 'both') && exitIp"
-        class="vpngw-info-cell">
+        class="vpngw-info-cell" :title="ipTooltip('exit', exitIp, exitIpPrevious, exitIpChangedAt)">
         <span class="vpngw-info-label" x-text="config.vpnIpDisplay === 'both' ? 'Server:' : 'VPN server:'"></span>
         <code class="vpngw-info-value"
           :class="{'vpngw-changed': isRecentlyChanged(exitIpChangedAt)}"
-          :title="ipTooltip('exit', exitIp, exitIpPrevious, exitIpChangedAt)"
           x-text="exitIp"></code>
+      </span>
+
+      <!-- Outgoing address, shown only in 'exit' mode. This is the one
+           value on the row we have measured ourselves, through the
+           tunnel, so it renders confirmed. -->
+      <span x-show="config.vpnIpDisplay === 'exit' && exitPublicIp"
+        class="vpngw-info-cell" :title="exitIpTooltip()">
+        <span class="vpngw-info-label">Exit IP:</span>
+        <code class="vpngw-info-value vpngw-confirmed" x-text="exitPublicIp"></code>
       </span>
 
       <!-- Tunnel IP — shown in 'tunnel' and 'both' modes -->
       <span x-show="(config.vpnIpDisplay === 'tunnel' || config.vpnIpDisplay === 'both') && tunnelIp"
-        class="vpngw-info-cell">
+        class="vpngw-info-cell" :title="ipTooltip('tunnel', tunnelIp, tunnelIpPrevious, tunnelIpChangedAt)">
         <span class="vpngw-info-label" x-text="config.vpnIpDisplay === 'both' ? 'Tunnel:' : 'Tunnel IP:'"></span>
         <code class="vpngw-info-value"
           :class="{'vpngw-changed': isRecentlyChanged(tunnelIpChangedAt)}"
-          :title="ipTooltip('tunnel', tunnelIp, tunnelIpPrevious, tunnelIpChangedAt)"
           x-text="tunnelIp"></code>
       </span>
 
@@ -608,10 +641,12 @@
         <span class="vpngw-info-label" x-text="visiblePortCount() === 1 ? 'Port:' : 'Ports:'"></span>
 
         <!-- Dynamic port (PIA / Proton) -->
-        <code x-show="forwardedPortsDynamic" class="vpngw-info-value"
-          :class="{'vpngw-changed': isRecentlyChanged(forwardedPortDynamicChangedAt)}"
-          :title="portTooltip('dynamic')"
-          x-text="forwardedPortsDynamic"></code>
+        <span x-show="forwardedPortsDynamic" :title="portTooltip('dynamic')">
+          <code class="vpngw-info-value"
+            :class="{'vpngw-changed': isRecentlyChanged(forwardedPortDynamicChangedAt),
+                     'vpngw-confirmed': qbitPortConfirmed()}"
+            x-text="forwardedPortsDynamic"></code>
+        </span>
 
         <!-- Static ports — only in 'all' mode -->
         <template x-for="(p, i) in (config.forwardedPortsDisplay === 'all' ? forwardedPortsStatic : [])"
@@ -622,6 +657,22 @@
         </template>
       </span>
     </div>
+
+    <!-- Port mismatch notice. Only appears when the provider hands out a
+         dynamic port (PIA / Proton) and a configured qBittorrent instance
+         is listening somewhere else, or when we could not check. It
+         suggests the auto-sync toggle rather than changing anything by
+         itself: whether vpn-gateway writes into qBittorrent stays the
+         user's choice. -->
+    <template x-for="n in qbitPortNotices()" :key="n.key">
+      <div class="vpngw-port-notice">
+        <span x-text="n.message"></span>
+        <template x-if="n.hint">
+          <span> <span x-text="n.hint"></span></span>
+        </template>
+      </div>
+    </template>
+
     <div class="speed-grid">
       <div class="speed-box">
         <div class="speed-label">Download</div>
@@ -1000,6 +1051,7 @@
               <select class="input" style="max-width:320px"
                 x-model="config.vpnIpDisplay" @change="save()">
                 <option value="server">VPN server IP (the address the tunnel connects to)</option>
+                <option value="exit">Exit IP (looked up): the address the outside world sees</option>
                 <option value="tunnel">Tunnel IP — our address inside the tunnel</option>
                 <option value="both">Both (Server + Tunnel)</option>
                 <option value="off">Off — hide the badge</option>
@@ -1010,9 +1062,13 @@
                 With most providers that is also the address external services see.
                 Some providers, PIA among them, send traffic out through a different
                 address, so this value can differ from the IP a tracker or website
-                reports. To check the address the outside world sees, look at a client
-                running through the gateway, such as qBittorrent, or at the
-                <code>[VPN] [IPV4]</code> line in this container's log at startup.
+                reports.
+                <strong>Exit IP</strong> is that outgoing address, measured instead of
+                guessed: vpn-gateway asks <code>https://1.1.1.1/cdn-cgi/trace</code>
+                through the tunnel which address the request came from, and repeats it
+                every 15 minutes and whenever the tunnel moves to another server. This
+                is the only option that sends a request outside your network, which is
+                why it is off unless you choose it.
                 <strong>Tunnel IP</strong> is the address the provider assigned on our
                 side of the WireGuard tunnel (e.g. <code>10.2.0.2</code>) — useful
                 for debugging routing, not for verifying your exit IP. Shows in the
@@ -1661,6 +1717,16 @@ function app() {
     // rotation in amber for 48h with the prior port in the tooltip.
     forwardedPortsStatic: [],
     forwardedPortsDynamic: 0,
+    // Per-instance qBittorrent listening-port check from /api/status. Used
+    // to say whether the provider's port is actually in use, instead of
+    // showing the number on its own as if it were confirmed.
+    qbitPorts: [],
+    qbitPortsCheckedAt: '',
+    // Outgoing address measured through the tunnel. Only filled in when
+    // the badge is set to 'exit', the one mode that looks it up.
+    exitPublicIp: '',
+    exitPublicIpProblem: '',
+    exitPublicIpCheckedAt: '',
     forwardedPortsRotatesAt: '',
     forwardedPortDynamicPrevious: '',
     forwardedPortDynamicChangedAt: '',
@@ -1910,6 +1976,7 @@ function app() {
       const ipOn = this.config.vpnIpDisplay && this.config.vpnIpDisplay !== 'off';
       const ipHas = (this.config.vpnIpDisplay === 'server'  && this.exitIp) ||
                     (this.config.vpnIpDisplay === 'tunnel'  && this.tunnelIp) ||
+                    (this.config.vpnIpDisplay === 'exit'    && this.exitPublicIp) ||
                     (this.config.vpnIpDisplay === 'both'    && (this.exitIp || this.tunnelIp));
       const portOn = this.config.forwardedPortsDisplay && this.config.forwardedPortsDisplay !== 'off';
       const portHas = this.forwardedPortsDynamic ||
@@ -1943,6 +2010,76 @@ function app() {
     // are admin-managed so we don't track history for them. Dynamic ports
     // (PIA / Proton) get the change history + rotation countdown if PIA
     // persist is enabled.
+    // exitIpTooltip explains what the measured outgoing address is and
+    // when it was last checked, so a stale value is visible as stale.
+    exitIpTooltip() {
+      let t = 'The address an outside service sees for your traffic, measured through the tunnel';
+      if (this.exitPublicIpCheckedAt) t += ' · checked ' + this.timeAgo(this.exitPublicIpCheckedAt);
+      return t;
+    },
+
+    // qbitPortConfirmed reports whether at least one configured qBittorrent
+    // instance is confirmed to be listening on the provider's forwarded
+    // port. Only then does the port render green: otherwise the number is
+    // just what hotio wrote to forwarded_port, which says nothing about
+    // whether anything is using it.
+    qbitPortConfirmed() {
+      const want = this.forwardedPortsDynamic;
+      if (!want || !this.qbitPorts.length) return false;
+      // Every instance we could read must agree. With one of two instances
+      // on the wrong port, a green badge next to a mismatch notice would
+      // contradict itself.
+      return this.qbitPorts.some(p => p.listenPort === want) &&
+             !this.qbitPorts.some(p => p.listenPort && p.listenPort !== want);
+    },
+
+    // qbitPortNotices builds the dashboard notices for qBittorrent
+    // instances whose listening port disagrees with the provider's
+    // forwarded port, or that could not be checked. Returns an empty list
+    // when there is nothing to say, which is the common case: providers
+    // with static ports publish no dynamic port at all, and a matching
+    // port needs no notice.
+    qbitPortNotices() {
+      const out = [];
+      // Exit-mode lookup trouble belongs on the same notice line: the
+      // badge would otherwise just be missing with no explanation.
+      if (this.config.vpnIpDisplay === 'exit' && !this.exitPublicIp) {
+        out.push({
+          key: 'exit-ip',
+          message: this.exitPublicIpProblem
+            ? 'The outgoing address could not be looked up. vpn-gateway tries again about a minute from now.'
+            : 'Looking up the outgoing address.',
+          hint: this.exitPublicIpProblem
+            ? 'This needs the tunnel to be up and able to reach the internet. Switch the badge back to VPN server if you would rather not have vpn-gateway make this lookup.'
+            : '',
+        });
+      }
+      // Respect the port badge setting: someone who hid the port on
+      // purpose should not get a block of text about it instead.
+      const want = this.forwardedPortsDynamic;
+      if (!want || !this.config.forwardedPortsDisplay || this.config.forwardedPortsDisplay === 'off') return out;
+      for (const p of this.qbitPorts) {
+        const name = p.name || ('port ' + p.port);
+        if (p.problem) {
+          out.push({
+            key: 'problem-' + p.port,
+            message: 'Cannot tell whether ' + name + ' uses the forwarded port ' + want + ': ' + p.problem + '.',
+            hint: '',
+          });
+          continue;
+        }
+        if (!p.listenPort || p.listenPort === want) continue;
+        out.push({
+          key: 'mismatch-' + p.port,
+          message: name + ' is listening on port ' + p.listenPort + ', but your VPN provider forwarded port ' + want + '. Incoming connections will not reach it.',
+          hint: p.autoSync
+            ? 'Auto-sync is on for this instance, so vpn-gateway should update it within 30 seconds. If this notice stays, check the container log for the reason.'
+            : 'To have vpn-gateway keep this in step, turn on "Auto-sync listening port" for this instance under Settings, Service Monitoring. Or set the port in qBittorrent yourself.',
+        });
+      }
+      return out;
+    },
+
     portTooltip(kind) {
       if (kind === 'static') {
         return 'Static port — reserved at the VPN provider, set in the Docker template via VPN_PORT_REDIRECTS';
@@ -1953,9 +2090,10 @@ function app() {
         return next ? changed + ' · ' + next : changed;
       }
       const next = this.forwardedPortsCountdown();
-      return next
-        ? 'Dynamic port (PIA / Proton port-forward API) · ' + next
-        : 'Dynamic port (PIA / Proton port-forward API)';
+      const base = this.qbitPortConfirmed()
+        ? 'Dynamic port from the PIA / Proton port-forward API, and qBittorrent is listening on it'
+        : 'Dynamic port from the PIA / Proton port-forward API, as published by the VPN container (not checked against qBittorrent)';
+      return next ? base + ' · ' + next : base;
     },
 
     async changePassword() {
@@ -2119,6 +2257,11 @@ function app() {
         this.tunnelIpChangedAt = status.tunnelIpChangedAt || '';
         this.forwardedPortsStatic = status.forwardedPortsStatic || [];
         this.forwardedPortsDynamic = status.forwardedPortsDynamic || 0;
+        this.qbitPorts = status.qbitPorts || [];
+        this.qbitPortsCheckedAt = status.qbitPortsCheckedAt || '';
+        this.exitPublicIp = status.exitPublicIp || '';
+        this.exitPublicIpProblem = status.exitPublicIpProblem || '';
+        this.exitPublicIpCheckedAt = status.exitPublicIpCheckedAt || '';
         this.forwardedPortsRotatesAt = status.forwardedPortsRotatesAt || '';
         this.forwardedPortDynamicPrevious = status.forwardedPortDynamicPrevious || '';
         this.forwardedPortDynamicChangedAt = status.forwardedPortDynamicChangedAt || '';
@@ -2145,6 +2288,11 @@ function app() {
           if (data.tunnelIpChangedAt !== undefined) this.tunnelIpChangedAt = data.tunnelIpChangedAt || '';
           if (data.forwardedPortsStatic !== undefined) this.forwardedPortsStatic = data.forwardedPortsStatic || [];
           if (data.forwardedPortsDynamic !== undefined) this.forwardedPortsDynamic = data.forwardedPortsDynamic || 0;
+          if (data.qbitPorts !== undefined) this.qbitPorts = data.qbitPorts || [];
+          if (data.qbitPortsCheckedAt !== undefined) this.qbitPortsCheckedAt = data.qbitPortsCheckedAt || '';
+          if (data.exitPublicIp !== undefined) this.exitPublicIp = data.exitPublicIp || '';
+          if (data.exitPublicIpProblem !== undefined) this.exitPublicIpProblem = data.exitPublicIpProblem || '';
+          if (data.exitPublicIpCheckedAt !== undefined) this.exitPublicIpCheckedAt = data.exitPublicIpCheckedAt || '';
           if (data.forwardedPortsRotatesAt !== undefined) this.forwardedPortsRotatesAt = data.forwardedPortsRotatesAt || '';
           if (data.forwardedPortDynamicPrevious !== undefined) this.forwardedPortDynamicPrevious = data.forwardedPortDynamicPrevious || '';
           if (data.forwardedPortDynamicChangedAt !== undefined) this.forwardedPortDynamicChangedAt = data.forwardedPortDynamicChangedAt || '';

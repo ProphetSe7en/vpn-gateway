@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -37,6 +38,15 @@ type App struct {
 	traffic       *TrafficCollector
 	authStore     *auth.Store
 	history       *HistoryStore
+	// qbitPorts caches the per-instance qBittorrent listening-port check
+	// that backs the port-mismatch notice on the dashboard.
+	qbitPorts qbitPortCache
+	// qbitStateLogged keeps the one-off port-sync state line to one line,
+	// however many checks run before the provider publishes a port.
+	qbitStateLogged atomic.Bool
+	// exitIP caches the looked-up outgoing address for the "exit" badge
+	// mode. Empty until the first successful lookup.
+	exitIP exitIPCache
 	// putConfigMu serializes handlePutConfig so the read-modify-write of
 	// auth.Store config + traffic config cannot lose updates when two
 	// admins save concurrently. All other handlers are read-only or
@@ -166,6 +176,52 @@ func main() {
 				return
 			case <-ticker.C:
 				app.runQBitPortAutoSync()
+			}
+		}
+	})
+
+	// Exit-IP lookup: when the badge is set to "exit", find out which
+	// address the outside world actually sees by asking a public endpoint
+	// through the tunnel. Runs on a timer and re-checks immediately after
+	// the tunnel moves to a different VPN server. Does nothing in any
+	// other badge mode, so no traffic leaves the container unless the
+	// user asked for this.
+	safeGo("exit-ip", func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				app.refreshExitIP()
+			}
+		}
+	})
+
+	// qBit listening-port check: ask each configured qBit instance which
+	// port it actually listens on, so the dashboard can flag a mismatch
+	// with the provider's forwarded port instead of showing a number that
+	// only came out of hotio's forwarded_port file. Runs on its own timer
+	// (not in the status handler) so a wedged qBit cannot stall the
+	// dashboard. First pass is delayed to let the tunnel and qBit come up.
+	safeGo("qbit-port-check", func() {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(20 * time.Second):
+		}
+		app.refreshQBitPortStatus()
+		app.logQBitPortState()
+		ticker := time.NewTicker(qbitPortCheckInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				app.refreshQBitPortStatus()
+				app.logQBitPortState()
 			}
 		}
 	})
@@ -352,6 +408,8 @@ func (app *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 	wireguardDir := filepath.Dir(app.vpnConfigPath)
 	staticPorts := parseStaticPortRedirects(os.Getenv("VPN_PORT_REDIRECTS"))
 	dynamicPort := readDynamicForwardedPort(wireguardDir)
+	qbitPorts, qbitPortsCheckedAt := app.qbitPorts.get()
+	exitPublicIP, exitPublicProblem, _, exitPublicCheckedAt := app.exitIP.get()
 	rotatesAt := readPIARotatesAt(wireguardDir, app.iface)
 	var rotatesAtStr string
 	if !rotatesAt.IsZero() {
@@ -402,11 +460,23 @@ func (app *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 		// dynamicPrevious + dynamicChangedAt let the UI flag a fresh
 		// PIA rotation in amber for 48h with the prior port in the
 		// tooltip — static ports are admin-managed and not tracked.
-		"forwardedPortsStatic":            staticPorts,
-		"forwardedPortsDynamic":           dynamicPort,
-		"forwardedPortsRotatesAt":         rotatesAtStr,
-		"forwardedPortDynamicPrevious":    hist.ForwardedPortDynamic.Previous,
-		"forwardedPortDynamicChangedAt":   iso(hist.ForwardedPortDynamic.ChangedAt),
+		// qbitPorts lets the dashboard compare the provider's forwarded
+		// port against the port each qBittorrent instance actually
+		// listens on, and say which of the two it is looking at.
+		// checkedAt is empty until the first check has run.
+		// exitPublicIp is the address an outside service sees, measured
+		// through the tunnel, and only populated in the "exit" badge mode.
+		// It can differ from exitIp, which is the VPN server we dial.
+		"exitPublicIp":                  exitPublicIP,
+		"exitPublicIpProblem":           exitPublicProblem,
+		"exitPublicIpCheckedAt":         iso(exitPublicCheckedAt),
+		"qbitPorts":                     qbitPorts,
+		"qbitPortsCheckedAt":            iso(qbitPortsCheckedAt),
+		"forwardedPortsStatic":          staticPorts,
+		"forwardedPortsDynamic":         dynamicPort,
+		"forwardedPortsRotatesAt":       rotatesAtStr,
+		"forwardedPortDynamicPrevious":  hist.ForwardedPortDynamic.Previous,
+		"forwardedPortDynamicChangedAt": iso(hist.ForwardedPortDynamic.ChangedAt),
 	}
 
 	writeJSON(w, status)
@@ -455,24 +525,51 @@ func (app *App) runQBitPortAutoSync() {
 	if currentPort == 0 {
 		return
 	}
-	previous := app.history.AutoSyncedQBitPort()
-	if previous == currentPort {
-		return
-	}
 	qbitP, ok := pollerFor("qbittorrent").(*qBitPoller)
 	if !ok || qbitP == nil {
-		log.Printf("qbit-port-autosync: qBit poller not registered — skipping")
+		log.Printf("qbit-port-autosync: qBit poller not registered, skipping")
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	// Compare against the port qBittorrent is really on, not just against
+	// the last value we pushed. Trusting our own record meant that any
+	// change made elsewhere (someone edits the port in qBit, a restored
+	// config, a fresh qBit volume) was never corrected: we had recorded
+	// the port as synced, so the loop returned and the dashboard kept
+	// reporting a mismatch nobody acted on.
+	previous := app.history.AutoSyncedQBitPort()
+	actual, err := qbitP.ListeningPort(ctx, *target)
+	switch {
+	case err == nil && actual == currentPort:
+		// Already correct. Record it so a later re-enable is a no-op too.
+		if previous != currentPort {
+			app.history.SetAutoSyncedQBitPort(currentPort)
+		}
+		return
+	case err != nil && previous == currentPort:
+		// Cannot read the current value (no credentials, qBit restarting).
+		// Our record says we already pushed this port, so leave it alone
+		// rather than writing on every tick.
+		return
+	case err != nil:
+		log.Printf("qbit-port-autosync: %s: could not read the current listening port, pushing %d anyway: %v",
+			sanitizeLogField(target.Name), currentPort, err)
+	}
 	if err := qbitP.SetListeningPort(ctx, *target, currentPort); err != nil {
 		log.Printf("qbit-port-autosync: setPreferences port=%d on %s: %v", currentPort, sanitizeLogField(target.Name), err)
 		return
 	}
 	app.history.SetAutoSyncedQBitPort(currentPort)
-	log.Printf("qbit-port-autosync: pushed listen_port=%d to %s (was %d)",
-		currentPort, sanitizeLogField(target.Name), previous)
+	if actual > 0 {
+		log.Printf("qbit-port-autosync: set listen_port=%d on %s (was %d)",
+			currentPort, sanitizeLogField(target.Name), actual)
+	} else {
+		log.Printf("qbit-port-autosync: set listen_port=%d on %s", currentPort, sanitizeLogField(target.Name))
+	}
+	// The dashboard should reflect the new value without waiting out the
+	// check interval, or the notice we just resolved lingers for a minute.
+	app.refreshQBitPortStatus()
 }
 
 // iso formats a time as RFC3339 UTC, returning "" for the zero value.
@@ -719,8 +816,8 @@ func (app *App) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 	// + Tools-tab dropdown change). PortMapping has no slice/map fields, so
 	// value copies into these maps / the snapshot slice are deep enough.
 	var (
-		oldByPort      map[int]PortMapping
-		oldByName      map[string]PortMapping
+		oldByPort             map[int]PortMapping
+		oldByName             map[string]PortMapping
 		existingPortsSnapshot []PortMapping
 	)
 	if existingErr == nil && existing != nil {
