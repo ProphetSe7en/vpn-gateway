@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4.7
+
+### Fixed
+
+- **Security patches for the web interface.** The web interface is now built with the current Go release, which carries fixes for the template engine that renders the login and setup pages. The cryptography library used for password hashing and sessions was updated as well. Nothing changes in how the gateway works.
+
 ## v1.4.6
 
 ### Fixed

@@ -1,9 +1,9 @@
 # --- Stage 1: Build web UI ---
-FROM golang:1.25.9-alpine AS builder
+FROM golang:1.27.2-alpine AS builder
 WORKDIR /build
 COPY ui/ .
 RUN go mod download
-ARG APP_VERSION=1.4.6
+ARG APP_VERSION=1.4.7
 RUN CGO_ENABLED=0 go build -o vpn-gateway-ui -ldflags="-s -w -X main.Version=${APP_VERSION}" .
 
 # --- Stage 2: Runtime ---

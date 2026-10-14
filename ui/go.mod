@@ -1,7 +1,7 @@
 module vpn-gateway-ui
 
-go 1.25
+go 1.27
 
-toolchain go1.25.10
+toolchain go1.27.2
 
-require golang.org/x/crypto v0.45.0
+require golang.org/x/crypto v0.58.0

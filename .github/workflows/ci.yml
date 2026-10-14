@@ -36,9 +36,11 @@ jobs:
           go-version-file: ui/go.mod
           cache-dependency-path: ui/go.sum
       - name: install govulncheck
-        # Pinned — govulncheck@latest may require newer Go than our go.mod
-        # declares. Bump together with the go.mod toolchain.
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+        # Pinned deliberately. govulncheck@latest may need a newer Go than
+        # our go.mod declares, and a pin older than the Go release fails on
+        # x/tools skew. Bump this together with the go.mod toolchain and the
+        # Dockerfile builder image, never on its own.
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
       - name: scan
         working-directory: ui
         run: govulncheck ./...
