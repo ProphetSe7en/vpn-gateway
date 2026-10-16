@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"path/filepath"
 	"sync"
 	"time"
@@ -96,6 +97,11 @@ func (app *App) refreshQBitPortStatus() {
 			item.ListenPort = port
 		case errors.Is(err, errQBitLoginRequired):
 			item.Problem = "add this instance's qBittorrent Username and Password so the port can be checked"
+		case isConnectionError(err):
+			// Usually just a qBittorrent that has not finished starting, or
+			// one that is down. Saying "could not read" there sounds like a
+			// fault in the port check itself.
+			item.Problem = "qBittorrent is not answering on its web UI port"
 		default:
 			item.Problem = "could not read the listening port from qBittorrent"
 			log.Printf("qbit-port-check: %s: %v", sanitizeLogField(pm.Name), err)
@@ -122,11 +128,28 @@ func (app *App) logQBitPortState() {
 	if dynamic == 0 {
 		return
 	}
-	app.qbitStateLogged.Store(true)
 	items, _ := app.qbitPorts.get()
 	if len(items) == 0 {
+		app.qbitStateLogged.Store(true)
 		log.Printf("qbit-port-sync: provider port is %d, no qBittorrent instance is configured", dynamic)
 		return
+	}
+	// A failed first check is usually just qBittorrent still starting, so
+	// the "what is the port sync doing" line waits for an answer we can
+	// actually act on. The problem itself is still reported once, so a
+	// permanent failure is not silent either.
+	unresolved := false
+	for _, it := range items {
+		if it.Problem != "" {
+			unresolved = true
+		}
+	}
+	if unresolved {
+		if app.qbitProblemLogged.Swap(true) {
+			return
+		}
+	} else {
+		app.qbitStateLogged.Store(true)
 	}
 	for _, it := range items {
 		name := sanitizeLogField(it.Name)
@@ -141,4 +164,11 @@ func (app *App) logQBitPortState() {
 			log.Printf("qbit-port-sync: %s: listening on %d, provider port is %d, auto-sync is off", name, it.ListenPort, dynamic)
 		}
 	}
+}
+
+// isConnectionError reports whether the failure was in reaching
+// qBittorrent at all, rather than in what it answered.
+func isConnectionError(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr)
 }

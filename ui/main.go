@@ -44,6 +44,9 @@ type App struct {
 	// qbitStateLogged keeps the one-off port-sync state line to one line,
 	// however many checks run before the provider publishes a port.
 	qbitStateLogged atomic.Bool
+	// qbitProblemLogged keeps a failing port check to one log line too,
+	// so a qBittorrent that stays unreachable does not repeat every minute.
+	qbitProblemLogged atomic.Bool
 	// exitIP caches the looked-up outgoing address for the "exit" badge
 	// mode. Empty until the first successful lookup.
 	exitIP exitIPCache
