@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4.9
+
+### Fixed
+
+- **Security patches.** The web interface is built with the current Go release, which adds a block on certificates that are no longer trusted, and the base image brings an updated certificate list plus current Alpine, curl and expat patches. Nothing changes in how the gateway works.
+
 ## v1.4.8
 
 ### Added

@@ -1,9 +1,9 @@
 # --- Stage 1: Build web UI ---
-FROM golang:1.27.2-alpine AS builder
+FROM golang:1.27.3-alpine AS builder
 WORKDIR /build
 COPY ui/ .
 RUN go mod download
-ARG APP_VERSION=1.4.8
+ARG APP_VERSION=1.4.9
 RUN CGO_ENABLED=0 go build -o vpn-gateway-ui -ldflags="-s -w -X main.Version=${APP_VERSION}" .
 
 # --- Stage 2: Runtime ---
@@ -14,14 +14,15 @@ RUN CGO_ENABLED=0 go build -o vpn-gateway-ui -ldflags="-s -w -X main.Version=${A
 #   v1.4.3          → 2026-05-17 (38fffcf0…) — Alpine 3.23, s6-overlay 3.2.3.0
 #   v1.4.4          → 2026-06-30 (496a867c…) — Alpine 3.23.5 point release; OpenSSL 3.5.7, expat 2.8.2, ca-certificates security patches. nftables / wireguard-tools / iproute2 / s6-overlay unchanged.
 #   v1.4.5          → 2026-09-10 (71f47b74…): s6-overlay 3.2.3.2 (s6-rc 0.7.0.0); OpenSSL 3.5.8, curl 8.22 security patches. nftables / wireguard-tools / iproute2 unchanged.
-#   v1.4.6+         → 2026-10-06 (15442e78…): Alpine 3.23.6; OpenSSL 3.5.9, ca-certificates, expat, pcre2, unbound 1.25.2, tzdata security patches. init-wireguard now sets the link MTU from the wg conf (default 1420, same as the kernel default before). s6-overlay / nftables / wireguard-tools / iproute2 unchanged.
+#   v1.4.6 - v1.4.8 → 2026-10-06 (15442e78…): Alpine 3.23.6; OpenSSL 3.5.9, ca-certificates, expat, pcre2, unbound 1.25.2, tzdata security patches. init-wireguard now sets the link MTU from the wg conf (default 1420, same as the kernel default before). s6-overlay / nftables / wireguard-tools / iproute2 unchanged.
+#   v1.4.9+         → 2026-11-06 (b6cddd70…): Alpine 3.23.8; ca-certificates 20261020, curl 8.23, expat 2.10, musl, zlib, python3, tzdata security patches. Every s6 script byte-identical to the previous pin; s6-overlay / nftables / wireguard-tools / iproute2 unchanged.
 # To check current upstream: docker pull ghcr.io/hotio/base:alpinevpn && docker inspect --format '{{.RepoDigests}}' ghcr.io/hotio/base:alpinevpn
 #
 # The user bundle lives in /etc/s6-overlay/user-bundles.d/user/ (s6-overlay >= 3.2.3.1).
 # Never recreate /etc/s6-overlay/s6-rc.d/user/: when that directory exists, s6-overlay
 # ignores user-bundles.d entirely and the hotio services (healthcheck, unbound,
 # port forwarding, privoxy) silently stop starting.
-FROM ghcr.io/hotio/base@sha256:15442e78c5295bf8dfc0f95e5fc9e83d341a82019adf7b71060d9f6aade1ad18
+FROM ghcr.io/hotio/base@sha256:b6cddd70fb1b772234cd268eb718fb9d0fc8bce1a940c2b57c6d339d9b986af0
 
 LABEL maintainer="ProphetSe7en" \
       description="VPN gateway with nftables bandwidth limiting, scheduling, and web UI"
